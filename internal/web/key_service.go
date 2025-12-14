@@ -1,0 +1,164 @@
+package web
+
+import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
+	"encoding/pem"
+	"fmt"
+
+	"gitlab.com/real-cis/cc/betterkey/internal/common"
+	"gitlab.com/real-cis/cc/betterkey/internal/crypto"
+)
+
+type KeyGenService interface {
+	DeriveHKDF(id string, data []byte, context Context) (string, error)
+	DeriveX25519(id string, data []byte, context Context) (*crypto.KeyPair, error)
+	DeriveECDSA(id string, data []byte, context Context, curve elliptic.Curve, length int) (*crypto.KeyPair, error)
+	SignWithECDSA(req SigningRequest) (*SigningResponse, error)
+	CreateRSA(id string) (*crypto.KeyPair, error)
+	RemoveRSA(id string) error
+}
+
+type VaultKeyService struct {
+	vault         common.Vault
+	keyStore      common.BaseKeyStore
+	contextPrefix string
+}
+
+func NewKeyGenService(vault common.Vault, keyStore common.BaseKeyStore, devMode bool) KeyGenService {
+	contextPrefix := ""
+	if devMode {
+		contextPrefix = "dev-"
+	}
+	return &VaultKeyService{
+		vault:         vault,
+		keyStore:      keyStore,
+		contextPrefix: contextPrefix,
+	}
+}
+
+func (v *VaultKeyService) DeriveHKDF(id string, data []byte, context Context) (string, error) {
+	hkdf, err := v.vault.HKDF(data, fmt.Sprintf("%s-%s-%s", v.contextPrefix, string(context), id), 32)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(hkdf), nil
+}
+
+func (v *VaultKeyService) DeriveX25519(id string, data []byte, context Context) (*crypto.KeyPair, error) {
+	key, err := v.vault.HKDF(data, fmt.Sprintf("%s-%s-%s", v.contextPrefix, string(context), id), 32)
+	if err != nil {
+		return nil, err
+	}
+	return crypto.X25519(key)
+}
+
+func (v *VaultKeyService) DeriveECDSA(id string, data []byte, context Context, curve elliptic.Curve, length int) (*crypto.KeyPair, error) {
+	key, err := v.vault.HKDF(data, fmt.Sprintf("%s-%s-%s", v.contextPrefix, string(context), id), length)
+	if err != nil {
+		return nil, err
+	}
+	privateKey, err := crypto.ECDSA(key, curve)
+	if err != nil {
+		return nil, err
+	}
+	return pemencodeECKeyPair(privateKey)
+}
+
+func (v *VaultKeyService) SignWithECDSA(req SigningRequest) (*SigningResponse, error) {
+	mrtd, err := base64.StdEncoding.DecodeString(req.Mrtd)
+	if err != nil {
+		return nil, err
+	}
+	key, err := v.vault.HKDF(mrtd, fmt.Sprintf("%s-%s-%s", v.contextPrefix, string(req.Ctx), req.Id), 32)
+	if err != nil {
+		return nil, err
+	}
+	privateKey, err := crypto.ECDSA(key, elliptic.P256())
+	if err != nil {
+		return nil, err
+	}
+	signatures := make(map[string]string)
+	for msgId, msgBase64 := range req.Messages {
+		message, err := base64.StdEncoding.DecodeString(msgBase64)
+		if err != nil {
+			return nil, err
+		}
+
+		signed, err := crypto.ECDSASign(privateKey, message)
+		if err != nil {
+			return nil, err
+		}
+		signatures[msgId] = base64.StdEncoding.EncodeToString(signed)
+	}
+
+	keyPair, err := pemencodeECKeyPair(privateKey)
+	if err != nil {
+		return nil, err
+	}
+	return &SigningResponse{Signatures: signatures, PublicKey: keyPair.Public}, nil
+}
+
+func (v *VaultKeyService) CreateRSA(id string) (*crypto.KeyPair, error) {
+	var key *crypto.KeyPair
+	keyId := common.STORE_PREFIX_RSA_KEY + id
+	keyBytes, err := v.keyStore.Read(keyId)
+	if v.keyStore.HasNil(err) {
+		// generate new key, persist to keystore
+		key, err = crypto.RSA()
+		if err != nil {
+			return nil, err
+		}
+		data, err := json.Marshal(key)
+		if err != nil {
+			return nil, err
+		}
+		v.keyStore.Write(keyId, data)
+	} else if err != nil {
+		return nil, err
+	} else {
+		// key exists, parse key
+		err = json.Unmarshal(keyBytes, &key)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return key, nil
+}
+
+func (v *VaultKeyService) RemoveRSA(id string) error {
+	keyId := common.STORE_PREFIX_RSA_KEY + id
+	exists, err := v.keyStore.Exists(keyId)
+	if err != nil {
+		return err
+	} else if exists > 0 {
+		return v.keyStore.Delete(keyId)
+	}
+	return nil
+}
+
+func pemencodeECKeyPair(privateKey *ecdsa.PrivateKey) (*crypto.KeyPair, error) {
+	privBytes, err := x509.MarshalECPrivateKey(privateKey)
+	if err != nil {
+		return nil, err
+	}
+	privPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "EC PRIVATE KEY",
+		Bytes: privBytes,
+	})
+
+	pubBytes, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		return nil, err
+	}
+	pubPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: pubBytes,
+	})
+	return &crypto.KeyPair{Private: base64.StdEncoding.EncodeToString(privPEM),
+		Public: base64.StdEncoding.EncodeToString(pubPEM)}, nil
+}

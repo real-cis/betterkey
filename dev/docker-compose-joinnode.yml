@@ -1,0 +1,31 @@
+version: "3.8"
+services:
+  # Join a non-seed node to an existing cluster
+  node4:
+    image: bootstrap
+    env_file:
+      - ./dev/common.env
+    environment:
+      CLUSTER_PORT: 6004
+      NODE_HOST: node4
+      CLUSTER_PEERS: node1:6001
+      SERVER_PORT: 7004
+    volumes:
+      - /etc/sgx_default_qcnl.conf:/etc/sgx_default_qcnl.conf:ro
+      - node4_sealed:/sealed
+    devices:
+      - /dev/sgx_enclave
+      - /dev/sgx_provision
+      - /dev/sgx_vepc
+    ports:
+      - "7004:7004"
+    networks:
+      - seednet
+
+volumes:
+  node4_sealed:
+
+networks:
+  seednet:
+    name: seed_network
+    external: true

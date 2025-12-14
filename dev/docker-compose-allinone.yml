@@ -1,0 +1,92 @@
+version: "3.8"
+
+# Example compose file to demonstrate an all-in-one server cluster with
+# 3 seed nodes and a valkey server
+services:
+  node1:
+    image: bootstrap
+    env_file:
+      - ./dev/common.env
+    environment:
+      CLUSTER_PORT: 6001
+      NODE_HOST: node1
+      SEED_NODES: node1,node2,node3
+      CLUSTER_PEERS: node1:6001,node2:6002,node3:6003
+      SERVER_PORT: 7001
+    volumes:
+      - /etc/sgx_default_qcnl.conf:/etc/sgx_default_qcnl.conf:ro
+      - node1_sealed:/sealed
+    devices:
+      - /dev/sgx_enclave
+      - /dev/sgx_provision
+      - /dev/sgx_vepc
+    ports:
+      - "7001:7001"
+    networks:
+      - seednet
+
+  node2:
+    image: bootstrap
+    env_file:
+      - ./dev/common.env
+    environment:
+      CLUSTER_PORT: 6002
+      NODE_HOST: node2
+      SEED_NODES: node1,node2,node3
+      CLUSTER_PEERS: node1:6001,node2:6002,node3:6003
+      SERVER_PORT: 7002
+    volumes:
+      - /etc/sgx_default_qcnl.conf:/etc/sgx_default_qcnl.conf:ro
+      - node2_sealed:/sealed
+    devices:
+      - /dev/sgx_enclave
+      - /dev/sgx_provision
+      - /dev/sgx_vepc
+    ports:
+      - "7002:7002"
+    networks:
+      - seednet
+
+  node3:
+    image: bootstrap
+    env_file:
+      - ./dev/common.env
+    environment:
+      CLUSTER_PORT: 6003
+      NODE_HOST: node3
+      SEED_NODES: node1,node2,node3
+      CLUSTER_PEERS: node1:6001,node2:6002,node3:6003
+      SERVER_PORT: 7003
+    volumes:
+      - /etc/sgx_default_qcnl.conf:/etc/sgx_default_qcnl.conf:ro
+      - node3_sealed:/sealed
+    devices:
+      - /dev/sgx_enclave
+      - /dev/sgx_provision
+      - /dev/sgx_vepc
+    ports:
+      - "7003:7003"
+    networks:
+      - seednet
+
+  valkey:
+    image: valkey/valkey:8.0.2-alpine
+    ports:
+      - "6379:6379"
+    command: ["valkey-server", "/usr/local/etc/valkey/valkey.conf"]
+    restart: always
+    volumes:
+      - valkey_data:/data
+      - ./dev/valkey.conf:/usr/local/etc/valkey/valkey.conf:ro
+    networks:
+      - seednet
+
+volumes:
+  node1_sealed:
+  node2_sealed:
+  node3_sealed:
+  valkey_data:
+
+networks:
+  seednet:
+    name: seed_network

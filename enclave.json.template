@@ -1,0 +1,121 @@
+{
+    "exe": "main",
+    "key": "_SIGNERKEY_",
+    "debug": true,
+    "heapSize": 512,
+    "executableHeap": false,
+    "productID": 2025,
+    "securityVersion": 1,
+    "mounts": [
+        {
+            "source": "/sealed",
+            "target": "/sealed",
+            "type": "hostfs",
+            "readOnly": false
+        }, 
+        {
+            "source": "/certs",
+            "target": "/certs",
+            "type": "hostfs",
+            "readOnly": false
+        },
+        {
+            "source": "/usr/share/ca-certificates",
+            "target": "/usr/share/ca-certificates",
+            "type": "hostfs"
+        },
+        {
+            "source": "/etc/ssl/certs",
+            "target": "/etc/ssl/certs",
+            "type": "hostfs"
+        }
+    ],
+    "env": [
+        {
+            "name": "CLUSTER_PEERS",
+            "fromHost": true
+        },
+        {
+            "name": "CLUSTER_PORT",
+            "fromHost": true
+        },
+        {
+            "name": "CLUSTER_ID",
+            "fromHost": true
+        },
+        {
+            "name": "BIND_ADDRESS",
+            "fromHost": true
+        },
+        {
+            "name": "NODE_HOST",
+            "fromHost": true
+        },
+        {
+            "name":"CLUSTER_ENCRYPTIONKEY",
+            "fromHost": true
+        },
+        {
+            "name":"SEED_NODES",
+            "fromHost": true
+        },
+        {
+            "name":"VALKEY_URIS",
+            "fromHost": true
+        },
+        {
+            "name":"VALKEY_USER",
+            "fromHost": true
+        },
+        {
+            "name":"VALKEY_PASSWORD",
+            "fromHost": true
+        },
+        {
+            "name":"VALKEY_NAMESPACE",
+            "fromHost": true
+        },
+        {
+            "name": "VALKEY_TLS",
+            "fromHost": true
+        },
+        {
+            "name": "ACME_DNS_API_TOKEN",
+            "fromHost": true
+        },
+        {
+            "name": "SERVER_DOMAIN",
+            "fromHost": true
+        },
+        {
+            "name": "SERVER_PORT",
+            "fromHost": true
+        },
+        {
+            "name": "ACME_OWNER",
+            "fromHost": true
+        },
+        {
+            "name": "ACME_RETRY_DELAY",
+            "fromHost": true
+        },
+        {
+            "name": "ACME_RETRY_COUNT",
+            "fromHost": true
+        },
+        {
+            "name": "ACME_PROVIDER",
+            "fromHost": true
+        },
+        {
+            "name": "DEV_MODE",
+            "fromHost": true
+        }
+    ],
+    "files": [
+        {
+           "source":"_ENCLAVE_PROPS_",
+           "target":"/enclave.properties"
+       }
+    ]
+   }

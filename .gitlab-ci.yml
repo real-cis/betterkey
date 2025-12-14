@@ -1,0 +1,29 @@
+stages:
+  - build
+  - deploy
+
+build:
+  image: docker:latest
+  stage: build
+  services:
+    - docker:dind
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+  script:
+    - echo "$SIGNER_KEY_PEM" >signer-key.pem
+    - |
+      if [[ "$CI_COMMIT_BRANCH" == "main" ]]; then
+        tag=""
+        echo "Running on main branch: tag = 'latest'"
+      else
+        tag=":$( echo $CI_COMMIT_BRANCH | sed 's/[^a-zA-Z0-9]/-/g' )"
+        echo "Running on branch '$CI_COMMIT_BRANCH': tag = $tag"
+      fi
+    - docker build --pull --build-arg SIGNERKEY=signer-key.pem -t "$CI_REGISTRY_IMAGE${tag}" .
+    - docker push "$CI_REGISTRY_IMAGE${tag}"
+
+trigger-cloud-builder:
+  stage: deploy
+  variables:
+    UPSTREAM_PROJECT: root-of-trust
+  trigger: real-cis/infrastructure/ansible-cloud-builder
