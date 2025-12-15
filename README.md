@@ -42,12 +42,12 @@ docker-compose -f dev/docker-compose-allinone.yml up
 Betterkey is built using the following projects
 
 * [Ego](https://github.com/edgelesssys/ego) framework for building SGX enclaves
-* [Memberlist](github.com/hashicorp/memberlist) for clustering
-* [Certmagic](github.com/caddyserver/certmagic)
-* [Valkey-go](github.com/valkey-io/valkey-go)
-* [Testify](github.com/stretchr/testify)
-* [Go-chi](github.com/go-chi/chi)
-* [Testcontainers-go](github.com/testcontainers/testcontainers-go)
+* [Memberlist](https://github.com/hashicorp/memberlist) for clustering
+* [Certmagic](https://github.com/caddyserver/certmagic)
+* [Valkey-go](https://github.com/valkey-io/valkey-go)
+* [Testify](https://github.com/stretchr/testify)
+* [Go-chi](https://github.com/go-chi/chi)
+* [Testcontainers-go](https://github.com/testcontainers/testcontainers-go)
 
 
 ## License
