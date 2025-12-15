@@ -25,5 +25,5 @@ build:
 trigger-cloud-builder:
   stage: deploy
   variables:
-    UPSTREAM_PROJECT: root-of-trust
+    UPSTREAM_PROJECT: betterkey
   trigger: real-cis/infrastructure/ansible-cloud-builder
