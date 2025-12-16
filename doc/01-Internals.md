@@ -81,6 +81,12 @@ Heartbeat statistics are aggregated into 2-minute windows and exposed to applica
 - Valkey key-value store for certificate and session id store.
 - All data encrypted with master key before storage
 
+#### Key Migration 
+
+* Keys are derived based on the node's enclave identity and the master key.
+* A TDX VM using the key derivation service can continue to derive the keys as long as at least a single node is serving the key derivation requests. 
+* A migration might be necessary and is feasible if in the event that no nodes are remaining and a user wishes to host their own Betterkey nodes.
+
 ### Web Service & Key Derivation
 
 The HTTP API server starts only after the node reaches `READY` state.
