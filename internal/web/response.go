@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+
+	"gitlab.com/real-cis/cc/betterkey/pkg/api"
 )
 
 type ErrorWithCode struct {
@@ -38,6 +40,6 @@ func respondError(w http.ResponseWriter, code int, message string) {
 
 func keyResponseError(w http.ResponseWriter, status int, message string) {
 	slog.Error("key request error", "status", status, "message", message)
-	resp := KeyResponse{Message: message, Verified: false, Key: nil}
+	resp := api.KeyResponse{Message: message, Verified: false, Key: nil}
 	respondJSON(w, status, resp)
 }

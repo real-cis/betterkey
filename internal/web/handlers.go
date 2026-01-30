@@ -18,6 +18,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/go-tdx-guest/proto/tdx"
 	"gitlab.com/real-cis/cc/betterkey/internal/sgx"
+	"gitlab.com/real-cis/cc/betterkey/pkg/api"
 )
 
 func (s *HTTPServer) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -35,7 +36,7 @@ func (s *HTTPServer) handleVerifyRequest(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *HTTPServer) handleVerifyQuote(w http.ResponseWriter, r *http.Request) {
-	req, e := decodeRequest[AttestationRequest](r)
+	req, e := decodeRequest[api.AttestationRequest](r)
 	if e != nil {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
@@ -49,7 +50,7 @@ func (s *HTTPServer) handleVerifyQuote(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, response)
 }
 
-func (s *HTTPServer) keyRequestInit(req KeyRequest) (*VerifyResponse, *ErrorWithCode) {
+func (s *HTTPServer) keyRequestInit(req api.KeyRequest) (*api.VerifyResponse, *ErrorWithCode) {
 	if req.Type == "" || req.Id == "" {
 		return nil, &ErrorWithCode{Code: http.StatusBadRequest, Message: "Invalid request parameters"}
 	}
@@ -64,8 +65,8 @@ func (s *HTTPServer) keyRequestInit(req KeyRequest) (*VerifyResponse, *ErrorWith
 	return resp, nil
 }
 
-func (s *HTTPServer) keyRequestVerify(r *http.Request) (*AttestationResponse, *ErrorWithCode) {
-	req, err := decodeRequest[AttestationRequest](r)
+func (s *HTTPServer) keyRequestVerify(r *http.Request) (*api.AttestationResponse, *ErrorWithCode) {
+	req, err := decodeRequest[api.AttestationRequest](r)
 	if err != nil {
 		return nil, &ErrorWithCode{Code: http.StatusBadRequest, Message: "Invalid request"}
 	}
@@ -73,8 +74,8 @@ func (s *HTTPServer) keyRequestVerify(r *http.Request) (*AttestationResponse, *E
 	return s.challengeResponse.Verify(req.SessionId, req.Quote)
 }
 
-func (s *HTTPServer) keyRequestFinalize(id string, keyType KeyType, ctx Context,
-	mrtd []byte, quote *tdx.QuoteV4) (*KeyResponse, *ErrorWithCode) {
+func (s *HTTPServer) keyRequestFinalize(id string, keyType api.KeyType, ctx api.Context,
+	mrtd []byte, quote *tdx.QuoteV4) (*api.KeyResponse, *ErrorWithCode) {
 	slog.Info("key derivation request", "type", keyType, "id", id, "context", ctx)
 	// Verify policy, if any
 	verified, err := s.policyService.Verify(id, quote)
@@ -83,15 +84,15 @@ func (s *HTTPServer) keyRequestFinalize(id string, keyType KeyType, ctx Context,
 	}
 	var key any
 	switch keyType {
-	case Symmetric:
+	case api.Symmetric:
 		key, err = s.keyService.DeriveHKDF(id, mrtd, ctx)
-	case X25519:
+	case api.X25519:
 		key, err = s.keyService.DeriveX25519(id, mrtd, ctx)
-	case P256:
+	case api.P256:
 		key, err = s.keyService.DeriveECDSA(id, mrtd, ctx, elliptic.P256(), 32)
-	case P384:
+	case api.P384:
 		key, err = s.keyService.DeriveECDSA(id, mrtd, ctx, elliptic.P384(), 48)
-	case RSA:
+	case api.RSA:
 		key, err = s.keyService.CreateRSA(id)
 	default:
 		return nil, &ErrorWithCode{Code: http.StatusBadRequest, Message: "invalid key type"}
@@ -100,11 +101,11 @@ func (s *HTTPServer) keyRequestFinalize(id string, keyType KeyType, ctx Context,
 		slog.Error("key derivation failed", "error", err)
 		return nil, &ErrorWithCode{Code: http.StatusInternalServerError, Message: "key derivation failed"}
 	}
-	return &KeyResponse{Key: key, Verified: true}, nil
+	return &api.KeyResponse{Key: key, Verified: true}, nil
 }
 
 func (s *HTTPServer) handleKeyRequestInit(w http.ResponseWriter, r *http.Request) {
-	req, err := decodeRequest[KeyRequest](r)
+	req, err := decodeRequest[api.KeyRequest](r)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "Invalid request")
 		return
@@ -123,7 +124,7 @@ func (s *HTTPServer) handleKeyRequestFinalize(w http.ResponseWriter, r *http.Req
 		keyResponseError(w, e.Code, e.Message)
 		return
 	}
-	keyRequest := KeyRequest{}
+	keyRequest := api.KeyRequest{}
 	if err := json.Unmarshal([]byte(response.Payload), &keyRequest); err != nil {
 		keyResponseError(w, http.StatusInternalServerError, "Failed to unmarshal key request from store")
 		return
@@ -137,7 +138,7 @@ func (s *HTTPServer) handleKeyRequestFinalize(w http.ResponseWriter, r *http.Req
 }
 
 func (s *HTTPServer) handleSgxQuoteVerify(w http.ResponseWriter, r *http.Request) {
-	req, err := decodeRequest[SGXQuote](r)
+	req, err := decodeRequest[api.SGXQuote](r)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "Invalid request")
 		return
@@ -190,11 +191,11 @@ func (s *HTTPServer) handleGenerateAttestation(w http.ResponseWriter, _ *http.Re
 		return
 	}
 
-	respondJSON(w, http.StatusOK, SGXQuote{SignedQuote: base64.StdEncoding.EncodeToString(att)})
+	respondJSON(w, http.StatusOK, api.SGXQuote{SignedQuote: base64.StdEncoding.EncodeToString(att)})
 }
 
 func (s *HTTPServer) handlePolicyUpdate(w http.ResponseWriter, r *http.Request) {
-	request, err := decodeRequest[PolicyUpdateRequest](r)
+	request, err := decodeRequest[api.PolicyUpdateRequest](r)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "Invalid request")
 		return
@@ -227,7 +228,7 @@ func (s *HTTPServer) handleKeyDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *HTTPServer) handleSigningRequest(w http.ResponseWriter, r *http.Request) {
-	req, err := decodeRequest[SigningRequest](r)
+	req, err := decodeRequest[api.SigningRequest](r)
 	if err != nil {
 		slog.Error("failed to decode signing request", "error", err)
 		respondError(w, http.StatusBadRequest, "Invalid request")

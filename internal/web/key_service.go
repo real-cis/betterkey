@@ -11,13 +11,14 @@ import (
 
 	"gitlab.com/real-cis/cc/betterkey/internal/common"
 	"gitlab.com/real-cis/cc/betterkey/internal/crypto"
+	"gitlab.com/real-cis/cc/betterkey/pkg/api"
 )
 
 type KeyGenService interface {
-	DeriveHKDF(id string, data []byte, context Context) (string, error)
-	DeriveX25519(id string, data []byte, context Context) (*crypto.KeyPair, error)
-	DeriveECDSA(id string, data []byte, context Context, curve elliptic.Curve, length int) (*crypto.KeyPair, error)
-	SignWithECDSA(req SigningRequest) (*SigningResponse, error)
+	DeriveHKDF(id string, data []byte, context api.Context) (string, error)
+	DeriveX25519(id string, data []byte, context api.Context) (*crypto.KeyPair, error)
+	DeriveECDSA(id string, data []byte, context api.Context, curve elliptic.Curve, length int) (*crypto.KeyPair, error)
+	SignWithECDSA(req api.SigningRequest) (*api.SigningResponse, error)
 	CreateRSA(id string) (*crypto.KeyPair, error)
 	RemoveRSA(id string) error
 }
@@ -40,7 +41,7 @@ func NewKeyGenService(vault common.Vault, keyStore common.BaseKeyStore, devMode 
 	}
 }
 
-func (v *VaultKeyService) DeriveHKDF(id string, data []byte, context Context) (string, error) {
+func (v *VaultKeyService) DeriveHKDF(id string, data []byte, context api.Context) (string, error) {
 	hkdf, err := v.vault.HKDF(data, fmt.Sprintf("%s-%s-%s", v.contextPrefix, string(context), id), 32)
 	if err != nil {
 		return "", err
@@ -48,7 +49,7 @@ func (v *VaultKeyService) DeriveHKDF(id string, data []byte, context Context) (s
 	return base64.StdEncoding.EncodeToString(hkdf), nil
 }
 
-func (v *VaultKeyService) DeriveX25519(id string, data []byte, context Context) (*crypto.KeyPair, error) {
+func (v *VaultKeyService) DeriveX25519(id string, data []byte, context api.Context) (*crypto.KeyPair, error) {
 	key, err := v.vault.HKDF(data, fmt.Sprintf("%s-%s-%s", v.contextPrefix, string(context), id), 32)
 	if err != nil {
 		return nil, err
@@ -56,7 +57,7 @@ func (v *VaultKeyService) DeriveX25519(id string, data []byte, context Context) 
 	return crypto.X25519(key)
 }
 
-func (v *VaultKeyService) DeriveECDSA(id string, data []byte, context Context, curve elliptic.Curve, length int) (*crypto.KeyPair, error) {
+func (v *VaultKeyService) DeriveECDSA(id string, data []byte, context api.Context, curve elliptic.Curve, length int) (*crypto.KeyPair, error) {
 	key, err := v.vault.HKDF(data, fmt.Sprintf("%s-%s-%s", v.contextPrefix, string(context), id), length)
 	if err != nil {
 		return nil, err
@@ -68,7 +69,7 @@ func (v *VaultKeyService) DeriveECDSA(id string, data []byte, context Context, c
 	return pemencodeECKeyPair(privateKey)
 }
 
-func (v *VaultKeyService) SignWithECDSA(req SigningRequest) (*SigningResponse, error) {
+func (v *VaultKeyService) SignWithECDSA(req api.SigningRequest) (*api.SigningResponse, error) {
 	mrtd, err := base64.StdEncoding.DecodeString(req.Mrtd)
 	if err != nil {
 		return nil, err
@@ -99,7 +100,7 @@ func (v *VaultKeyService) SignWithECDSA(req SigningRequest) (*SigningResponse, e
 	if err != nil {
 		return nil, err
 	}
-	return &SigningResponse{Signatures: signatures, PublicKey: keyPair.Public}, nil
+	return &api.SigningResponse{Signatures: signatures, PublicKey: keyPair.Public}, nil
 }
 
 func (v *VaultKeyService) CreateRSA(id string) (*crypto.KeyPair, error) {
