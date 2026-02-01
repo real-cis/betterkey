@@ -17,19 +17,20 @@ import (
 	"gitlab.com/real-cis/cc/betterkey/providers/dns"
 )
 
-type HTTPServer struct {
-	Router            *chi.Mux
-	Port              int
-	Domain            string
-	NodeHost          string
-	server            *http.Server
-	keyService        KeyGenService
-	policyService     PolicyService
-	challengeResponse ChallengeResponse
+type KeyServer struct {
+	Router                   *chi.Mux
+	Port                     int
+	Domain                   string
+	NodeHost                 string
+	server                   *http.Server
+	keyService               KeyGenService
+	policyService            PolicyService
+	challengeResponse        ChallengeResponse // challenge response for VM attestation
+	sealingChallengeResponse ChallengeResponse // challenge response for sealing operations
 }
 
-func NewHTTPServer(config *common.ClusterConfig, kvStore common.KeyStore,
-	nodeMeta *common.NodeMeta, vault common.Vault, nodeTlsConfig *tls.Config) *HTTPServer {
+func NewKeyServer(config *common.ClusterConfig, kvStore common.KeyStore,
+	nodeMeta *common.NodeMeta, vault common.Vault, nodeTlsConfig *tls.Config) *KeyServer {
 	router := chi.NewRouter()
 
 	var tlsConfig *tls.Config
@@ -60,36 +61,42 @@ func NewHTTPServer(config *common.ClusterConfig, kvStore common.KeyStore,
 	}
 
 	keyStore := NewSessionKeyStore(kvStore, config.DevMode)
-	challengeResponse := NewAttestationProtocol(keyStore, config.DevMode)
+	// VMs always fully attest themselves, devMode=false
+	challengeResponse := NewAttestationProtocol(keyStore, false)
+	sealingChallengeResponse := NewAttestationProtocol(keyStore, config.DevMode)
 	keyGenService := NewKeyGenService(vault, keyStore, config.DevMode)
-	policyStore := NewPolicyStore(kvStore, config.DevMode)
-	policyService := NewPolicyService(policyStore)
-	sv := &HTTPServer{
-		Router:            router,
-		Port:              config.ServerPort,
-		Domain:            config.Domain,
-		NodeHost:          config.NodeHost,
-		server:            server,
-		keyService:        keyGenService,
-		challengeResponse: challengeResponse,
-		policyService:     policyService,
+	sv := &KeyServer{
+		Router:                   router,
+		Port:                     config.ServerPort,
+		Domain:                   config.Domain,
+		NodeHost:                 config.NodeHost,
+		server:                   server,
+		keyService:               keyGenService,
+		challengeResponse:        challengeResponse,
+		sealingChallengeResponse: sealingChallengeResponse,
 	}
 
 	router.Use(LoggingMiddleware, DefaultHeaders)
-	router.Get("/tdx/verify", sv.handleVerifyRequest)
-	router.Post("/tdx/verify", sv.handleVerifyQuote)
-	router.Post("/key/init", sv.handleKeyRequestInit)
-	router.Post("/key/finalize", sv.handleKeyRequestFinalize)
-	router.Post("/key/sign", sv.handleSigningRequest)
-	router.Delete("/key/{id}", sv.handleKeyDelete)
-	router.Put("/tdx/policy", sv.handlePolicyUpdate)
-	router.Post("/sgx/verify", sv.handleSgxQuoteVerify)
-	router.Get("/sgx/attestation", sv.handleGenerateAttestation)
-	router.Get("/health", sv.handleHealth)
+	sv.registerRoutes()
+
 	return sv
 }
 
-func (s *HTTPServer) Start() {
+func (s *KeyServer) registerRoutes() {
+	s.Router.Get("/tdx/verify", s.handleVerifyRequest)
+	s.Router.Post("/tdx/verify", s.handleVerifyQuote)
+	s.Router.Post("/key/init", s.handleKeyRequestInit)
+	s.Router.Post("/key/finalize", s.handleKeyRequestFinalize)
+	s.Router.Post("/key/sign", s.handleSigningRequest)
+	s.Router.Delete("/key/{id}", s.handleKeyDelete)
+	s.Router.Post("/tdx/seal/init", s.handleTdxSealInit)
+	s.Router.Post("/tdx/seal/finalize", s.handleTdxSealFinalize)
+	s.Router.Post("/sgx/verify", s.handleSgxQuoteVerify)
+	s.Router.Get("/sgx/attestation", s.handleGenerateAttestation)
+	s.Router.Get("/health", s.handleHealth)
+}
+
+func (s *KeyServer) Start() {
 	go func() {
 		slog.Info(fmt.Sprintf("Server listening on https://%s:%d", s.Domain, s.Port))
 		if err := s.server.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
@@ -104,7 +111,7 @@ func (s *HTTPServer) Start() {
 	s.Stop()
 }
 
-func (s *HTTPServer) Stop() {
+func (s *KeyServer) Stop() {
 	slog.Info("Shutting down gracefully...")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
