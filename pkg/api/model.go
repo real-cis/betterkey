@@ -74,3 +74,19 @@ type SigningResponse struct {
 	Signatures map[string]string `json:"signatures"` // messageId -> base64-encoded signature
 	PublicKey  string            `json:"publicKey"`  // base64
 }
+
+type TdxSealRequest struct {
+	Id            string `json:"id"`
+	Mrtd          string `json:"mrtd"`
+	Cfv           string `json:"cfv"`
+	SecurebootPK  string `json:"securebootPK"`
+	SecurebootKEK string `json:"securebootKEK"`
+	SecurebootDB  string `json:"securebootDB"`
+	SecurebootDBX string `json:"securebootDBX"`
+	Payload       string `json:"payload"`
+}
+
+type TdxSealResponse struct {
+	SealedPayload string `json:"sealedPayload"` // base64 - Sealed data with nonce
+	KeyId         string `json:"keyId"`
+}
