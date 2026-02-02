@@ -76,17 +76,13 @@ type SigningResponse struct {
 }
 
 type TdxSealRequest struct {
-	Id            string `json:"id"`
-	Mrtd          string `json:"mrtd"`
-	Cfv           string `json:"cfv"`
-	SecurebootPK  string `json:"securebootPK"`
-	SecurebootKEK string `json:"securebootKEK"`
-	SecurebootDB  string `json:"securebootDB"`
-	SecurebootDBX string `json:"securebootDBX"`
-	Payload       string `json:"payload"`
+	Id      string `json:"id"`
+	Mrtd    string `json:"mrtd"`
+	Cfv     string `json:"cfv"`
+	Payload string `json:"payload"`
 }
 
 type TdxSealResponse struct {
-	SealedPayload string `json:"sealedPayload"` // base64 - Sealed data with nonce
-	KeyId         string `json:"keyId"`
+	Id            string `json:"id"`
+	SealedPayload string `json:"sealedPayload"` // base64 - Nonce (12 bytes) || Ciphertext
 }
