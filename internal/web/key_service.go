@@ -168,15 +168,12 @@ func pemencodeECKeyPair(privateKey *ecdsa.PrivateKey) (*crypto.KeyPair, error) {
 
 // deriveSeedFromMeasurements derives a hash from TDX measurements and
 // boot configuration, to be used as a seed for HKDF
-// Parameters include MRTD, CFV, Secure Boot settings (PK, KEK, DB, DBX)
-func deriveSeedFromMeasurements(mrtd, cfv, securebootPK, securebootKEK, securebootDB, securebootDBX []byte) []byte {
+// Parameters include MRTD, CFV
+func deriveSeedFromMeasurements(mrtd, cfv []byte) []byte {
 	h := sha256.New()
 	h.Write(mrtd)
 	h.Write(cfv)
-	h.Write(securebootPK)
-	h.Write(securebootKEK)
-	h.Write(securebootDB)
-	h.Write(securebootDBX)
+
 	return h.Sum(nil)
 }
 
@@ -190,29 +187,13 @@ func (v *VaultKeyService) TDXSeal(req api.TdxSealRequest) (*api.TdxSealResponse,
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode cfv: %w", err)
 	}
-	securebootPK, err := base64.StdEncoding.DecodeString(req.SecurebootPK)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode securebootPK: %w", err)
-	}
-	securebootKEK, err := base64.StdEncoding.DecodeString(req.SecurebootKEK)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode securebootKEK: %w", err)
-	}
-	securebootDB, err := base64.StdEncoding.DecodeString(req.SecurebootDB)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode securebootDB: %w", err)
-	}
-	securebootDBX, err := base64.StdEncoding.DecodeString(req.SecurebootDBX)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode securebootDBX: %w", err)
-	}
 	payload, err := base64.StdEncoding.DecodeString(req.Payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode payload: %w", err)
 	}
 
 	// Derive symmetric key from TDX measurements and boot configuration
-	seed := deriveSeedFromMeasurements(mrtd, cfv, securebootPK, securebootKEK, securebootDB, securebootDBX)
+	seed := deriveSeedFromMeasurements(mrtd, cfv)
 	key, err := v.vault.HKDF(seed, fmt.Sprintf("%s-%s-%s", v.contextPrefix, string(api.ContextVMBoot), req.Id), 32)
 	if err != nil {
 		return nil, err
@@ -225,6 +206,7 @@ func (v *VaultKeyService) TDXSeal(req api.TdxSealRequest) (*api.TdxSealResponse,
 	}
 
 	return &api.TdxSealResponse{
+		Id:            req.Id,
 		SealedPayload: encryptedPayload,
 	}, nil
 }

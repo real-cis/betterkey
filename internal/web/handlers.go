@@ -214,8 +214,7 @@ func (s *KeyServer) handleKeyDelete(w http.ResponseWriter, r *http.Request) {
 
 func (s *KeyServer) tdxSealRequestInit(req api.TdxSealRequest) (*api.VerifyResponse, *ErrorWithCode) {
 	// Validate fields
-	if req.Mrtd == "" || req.Cfv == "" || req.SecurebootPK == "" || req.SecurebootKEK == "" ||
-		req.SecurebootDB == "" || req.SecurebootDBX == "" || req.Payload == "" {
+	if req.Mrtd == "" || req.Cfv == "" || req.Payload == "" {
 		return nil, &ErrorWithCode{Code: http.StatusBadRequest, Message: "Missing required parameters"}
 	}
 
