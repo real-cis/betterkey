@@ -87,7 +87,6 @@ func (s *KeyServer) registerRoutes() {
 	s.Router.Post("/tdx/verify", s.handleVerifyQuote)
 	s.Router.Post("/key/init", s.handleKeyRequestInit)
 	s.Router.Post("/key/finalize", s.handleKeyRequestFinalize)
-	s.Router.Post("/key/sign", s.handleSigningRequest)
 	s.Router.Delete("/key/{id}", s.handleKeyDelete)
 	s.Router.Post("/tdx/seal/init", s.handleTdxSealInit)
 	s.Router.Post("/tdx/seal/finalize", s.handleTdxSealFinalize)

@@ -212,22 +212,6 @@ func (s *KeyServer) handleKeyDelete(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, "Key deleted successfully")
 }
 
-func (s *KeyServer) handleSigningRequest(w http.ResponseWriter, r *http.Request) {
-	req, err := decodeRequest[api.SigningRequest](r)
-	if err != nil {
-		slog.Error("failed to decode signing request", "error", err)
-		respondError(w, http.StatusBadRequest, "Invalid request")
-		return
-	}
-	slog.Info("signing request received", "keyId", req.Id)
-	signingResponse, err := s.keyService.SignWithECDSA(req)
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "Failed to sign data")
-		return
-	}
-	respondJSON(w, http.StatusOK, signingResponse)
-}
-
 func (s *KeyServer) tdxSealRequestInit(req api.TdxSealRequest) (*api.VerifyResponse, *ErrorWithCode) {
 	// Validate fields
 	if req.Mrtd == "" || req.Cfv == "" || req.SecurebootPK == "" || req.SecurebootKEK == "" ||
