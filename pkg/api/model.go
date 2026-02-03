@@ -10,12 +10,14 @@ type VerifyResponse struct {
 type AttestationRequest struct {
 	SessionId string `json:"sessionId"`
 	Quote     string `json:"quote"`
+	EventLog  string `json:"eventLog,omitempty"`
 }
 
 type AttestationResponse struct {
 	Status  string       `json:"status"`
 	Payload string       `json:"payload"`
 	Quote   *tdx.QuoteV4 `json:"quote"`
+	KeySeed []byte       `json:"keySeed,omitempty"`
 }
 
 type AttestationRequestStore struct {

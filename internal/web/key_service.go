@@ -166,10 +166,9 @@ func pemencodeECKeyPair(privateKey *ecdsa.PrivateKey) (*crypto.KeyPair, error) {
 		Public: base64.StdEncoding.EncodeToString(pubPEM)}, nil
 }
 
-// deriveSeedFromMeasurements derives a hash from TDX measurements and
-// boot configuration, to be used as a seed for HKDF
-// Parameters include MRTD, CFV
-func deriveSeedFromMeasurements(mrtd, cfv []byte) []byte {
+// derives a hash from TDX measurements and boot configuration,
+// to be used as a seed for HKDF
+func DeriveSeedFromMeasurements(mrtd, cfv []byte) []byte {
 	h := sha256.New()
 	h.Write(mrtd)
 	h.Write(cfv)
@@ -193,7 +192,7 @@ func (v *VaultKeyService) TDXSeal(req api.TdxSealRequest) (*api.TdxSealResponse,
 	}
 
 	// Derive symmetric key from TDX measurements and boot configuration
-	seed := deriveSeedFromMeasurements(mrtd, cfv)
+	seed := DeriveSeedFromMeasurements(mrtd, cfv)
 	key, err := v.vault.HKDF(seed, fmt.Sprintf("%s-%s-%s", v.contextPrefix, string(api.ContextVMBoot), req.Id), 32)
 	if err != nil {
 		return nil, err

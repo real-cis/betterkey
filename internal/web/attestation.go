@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 
@@ -9,16 +10,25 @@ import (
 	"gitlab.com/real-cis/cc/betterkey/internal/crypto"
 	"gitlab.com/real-cis/cc/betterkey/internal/tdx"
 	"gitlab.com/real-cis/cc/betterkey/pkg/api"
+	"gitlab.com/real-cis/cc/go-trust/ccel"
+	"gitlab.com/real-cis/cc/go-trust/pkg/tcg"
+	"gitlab.com/real-cis/cc/go-trust/pkg/uefi"
 )
 
 type ChallengeResponse interface {
 	Init(requestData string) (*api.VerifyResponse, error)
-	Verify(sessionId string, tdQuote string) (*api.AttestationResponse, *ErrorWithCode)
+	Verify(sessionId string, tdQuote string, eventLog string) (*api.AttestationResponse, *ErrorWithCode)
 }
+
+const (
+	// EFI secure Boot hash = Measurement of EFI Var "SecureBoot" with value 1 (enabled)
+	EFISecureBootHash = "2cded0c6f453d4c6f59c5e14ec61abc6b018314540a2367cba326a52aa2b315ccc08ce68a816ce09c6ef2ac7e514ae1f"
+)
 
 type AttestationVerificationProtocol struct {
 	store         common.BaseKeyStore
 	quoteVerifier tdx.QuoteVerifier
+	devMode       bool
 }
 
 func NewAttestationProtocol(store common.BaseKeyStore, dev bool) ChallengeResponse {
@@ -31,6 +41,7 @@ func NewAttestationProtocol(store common.BaseKeyStore, dev bool) ChallengeRespon
 	return &AttestationVerificationProtocol{
 		store:         store,
 		quoteVerifier: verifier,
+		devMode:       dev,
 	}
 }
 
@@ -63,7 +74,7 @@ func DefaultStoreRead(store common.BaseKeyStore, sessionId string) (*api.Attesta
 	return &requestStore, nil
 }
 
-func (a *AttestationVerificationProtocol) Verify(sessionId string, tdQuote string) (*api.AttestationResponse, *ErrorWithCode) {
+func (a *AttestationVerificationProtocol) Verify(sessionId string, tdQuote string, eventLogB64 string) (*api.AttestationResponse, *ErrorWithCode) {
 	requestStore, e := DefaultStoreRead(a.store, sessionId)
 	if e != nil {
 		return nil, e
@@ -86,5 +97,60 @@ func (a *AttestationVerificationProtocol) Verify(sessionId string, tdQuote strin
 		return nil, NewError("verification of nonce failed", http.StatusUnauthorized)
 	}
 
-	return &api.AttestationResponse{Status: "success", Payload: requestStore.Payload, Quote: quoteV4}, nil
+	if a.devMode {
+		// In dev mode, skip eventLog parsing
+		return &api.AttestationResponse{Status: "success", Payload: requestStore.Payload, Quote: quoteV4, KeySeed: quoteV4.TdQuoteBody.MrTd}, nil
+	}
+
+	// decode eventlog base64
+	eventLog, err := base64.StdEncoding.DecodeString(eventLogB64)
+	if err != nil {
+		return nil, NewError("Invalid event log", http.StatusBadRequest)
+	}
+
+	eventlogger := ccel.NewEventLogger(eventLog, nil, tcg.PCClientFormat)
+	err = eventlogger.Parse()
+	if err != nil {
+		return nil, NewError("Failed to parse event log: "+err.Error(), http.StatusBadRequest)
+	}
+
+	eventlogReplay := eventlogger.Replay()
+	rtmr0 := eventlogReplay[0][tcg.AlgSHA384]
+	rtmr1 := eventlogReplay[1][tcg.AlgSHA384]
+	rtmr2 := eventlogReplay[2][tcg.AlgSHA384]
+	err = a.quoteVerifier.MatchRTMR(quoteV4, rtmr0, rtmr1, rtmr2)
+	if err != nil {
+		return nil, NewError("RTMR0 verification failed: "+err.Error(), http.StatusUnauthorized)
+	}
+
+	// Get CFV from event log
+	// Get secure boot measurements, verify secureboot flag
+	filteredEvents := eventlogger.FilterByEventType([]tcg.EventType{
+		tcg.EvEfiPlatformFirmwareBlob2,
+		tcg.EvEfiVariableDriverConfig,
+	})
+
+	var cfvHash []byte
+	for _, event := range filteredEvents {
+		eventType := event.GetEventType()
+
+		switch eventType {
+		case tcg.EvEfiPlatformFirmwareBlob2:
+			cfvHash = event.GetDigests()[0].Hash
+		case tcg.EvEfiVariableDriverConfig:
+			uefiVar, _ := uefi.NewUefiVariableDataFromBytes(event.GetEvent())
+
+			switch uefiVar.Name.String() {
+			case "SecureBoot":
+				if hex.EncodeToString(event.GetDigests()[0].Hash) != EFISecureBootHash {
+					return nil, NewError("Secure Boot is not enabled", http.StatusUnauthorized)
+				}
+			}
+		}
+	}
+	keySeed := DeriveSeedFromMeasurements(quoteV4.TdQuoteBody.MrTd, cfvHash)
+
+	// TODO: log everything
+
+	return &api.AttestationResponse{Status: "success", Payload: requestStore.Payload, Quote: quoteV4, KeySeed: keySeed}, nil
 }

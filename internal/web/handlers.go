@@ -41,7 +41,7 @@ func (s *KeyServer) handleVerifyQuote(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
-	response, err := s.challengeResponse.Verify(req.SessionId, req.Quote)
+	response, err := s.challengeResponse.Verify(req.SessionId, req.Quote, req.EventLog)
 	if err != nil {
 		keyResponseError(w, err.Code, err.Message)
 		return
@@ -71,11 +71,11 @@ func (s *KeyServer) keyRequestVerify(r *http.Request) (*api.AttestationResponse,
 		return nil, &ErrorWithCode{Code: http.StatusBadRequest, Message: "Invalid request"}
 	}
 	// Verify quote
-	return s.challengeResponse.Verify(req.SessionId, req.Quote)
+	return s.challengeResponse.Verify(req.SessionId, req.Quote, req.EventLog)
 }
 
 func (s *KeyServer) keyRequestFinalize(id string, keyType api.KeyType, ctx api.Context,
-	mrtd []byte, quote *tdx.QuoteV4) (*api.KeyResponse, *ErrorWithCode) {
+	seed []byte, quote *tdx.QuoteV4) (*api.KeyResponse, *ErrorWithCode) {
 	slog.Info("key derivation request", "type", keyType, "id", id, "context", ctx)
 	// Verify policy, if any
 	verified, err := s.policyService.Verify(id, quote)
@@ -85,13 +85,13 @@ func (s *KeyServer) keyRequestFinalize(id string, keyType api.KeyType, ctx api.C
 	var key any
 	switch keyType {
 	case api.Symmetric:
-		key, err = s.keyService.DeriveHKDF(id, mrtd, ctx)
+		key, err = s.keyService.DeriveHKDF(id, seed, ctx)
 	case api.X25519:
-		key, err = s.keyService.DeriveX25519(id, mrtd, ctx)
+		key, err = s.keyService.DeriveX25519(id, seed, ctx)
 	case api.P256:
-		key, err = s.keyService.DeriveECDSA(id, mrtd, ctx, elliptic.P256(), 32)
+		key, err = s.keyService.DeriveECDSA(id, seed, ctx, elliptic.P256(), 32)
 	case api.P384:
-		key, err = s.keyService.DeriveECDSA(id, mrtd, ctx, elliptic.P384(), 48)
+		key, err = s.keyService.DeriveECDSA(id, seed, ctx, elliptic.P384(), 48)
 	case api.RSA:
 		key, err = s.keyService.CreateRSA(id)
 	default:
@@ -119,17 +119,18 @@ func (s *KeyServer) handleKeyRequestInit(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *KeyServer) handleKeyRequestFinalize(w http.ResponseWriter, r *http.Request) {
-	response, e := s.keyRequestVerify(r)
+	verifyResponse, e := s.keyRequestVerify(r)
 	if e != nil {
 		keyResponseError(w, e.Code, e.Message)
 		return
 	}
 	keyRequest := api.KeyRequest{}
-	if err := json.Unmarshal([]byte(response.Payload), &keyRequest); err != nil {
+	if err := json.Unmarshal([]byte(verifyResponse.Payload), &keyRequest); err != nil {
 		keyResponseError(w, http.StatusInternalServerError, "Failed to unmarshal key request from store")
 		return
 	}
-	keyResponse, e := s.keyRequestFinalize(keyRequest.Id, keyRequest.Type, keyRequest.Ctx, response.Quote.TdQuoteBody.MrTd, response.Quote)
+
+	keyResponse, e := s.keyRequestFinalize(keyRequest.Id, keyRequest.Type, keyRequest.Ctx, verifyResponse.KeySeed, verifyResponse.Quote)
 	if e != nil {
 		respondError(w, e.Code, e.Message)
 		return
@@ -236,7 +237,7 @@ func (s *KeyServer) tdxSealRequestVerify(r *http.Request) (*api.AttestationRespo
 		return nil, &ErrorWithCode{Code: http.StatusBadRequest, Message: "Invalid request"}
 	}
 	// Verify quote using sealing challenge-response
-	return s.sealingChallengeResponse.Verify(req.SessionId, req.Quote)
+	return s.sealingChallengeResponse.Verify(req.SessionId, req.Quote, req.EventLog)
 }
 
 func (s *KeyServer) handleTdxSealInit(w http.ResponseWriter, r *http.Request) {
