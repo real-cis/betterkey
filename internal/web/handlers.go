@@ -15,7 +15,6 @@ import (
 
 	"github.com/edgelesssys/ego/attestation"
 	"github.com/edgelesssys/ego/enclave"
-	"github.com/go-chi/chi/v5"
 	"github.com/google/go-tdx-guest/proto/tdx"
 	"gitlab.com/real-cis/cc/betterkey/internal/sgx"
 	"gitlab.com/real-cis/cc/betterkey/pkg/api"
@@ -77,12 +76,9 @@ func (s *KeyServer) keyRequestVerify(r *http.Request) (*api.AttestationResponse,
 func (s *KeyServer) keyRequestFinalize(id string, keyType api.KeyType, ctx api.Context,
 	seed []byte, quote *tdx.QuoteV4) (*api.KeyResponse, *ErrorWithCode) {
 	slog.Info("key derivation request", "type", keyType, "id", id, "context", ctx)
-	// Verify policy, if any
-	verified, err := s.policyService.Verify(id, quote)
-	if err != nil || !verified {
-		return nil, &ErrorWithCode{Code: http.StatusUnauthorized, Message: "Policy verification failed"}
-	}
+
 	var key any
+	var err error
 	switch keyType {
 	case api.Symmetric:
 		key, err = s.keyService.DeriveHKDF(id, seed, ctx)
@@ -193,24 +189,6 @@ func (s *KeyServer) handleGenerateAttestation(w http.ResponseWriter, _ *http.Req
 	}
 
 	respondJSON(w, http.StatusOK, api.SGXQuote{SignedQuote: base64.StdEncoding.EncodeToString(att)})
-}
-
-func (s *KeyServer) handleKeyDelete(w http.ResponseWriter, r *http.Request) {
-	keyId := chi.URLParam(r, "id")
-	// remove keys
-	err := s.keyService.RemoveRSA(keyId)
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "Failed to delete key")
-		return
-	}
-	// remove policies
-	err = s.policyService.Delete(keyId)
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "Failed to delete associated policies")
-		return
-	}
-
-	respondJSON(w, http.StatusOK, "Key deleted successfully")
 }
 
 func (s *KeyServer) tdxSealRequestInit(req api.TdxSealRequest) (*api.VerifyResponse, *ErrorWithCode) {
