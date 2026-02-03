@@ -6,7 +6,7 @@ services:
   node1:
     image: bootstrap
     env_file:
-      - ./dev/common.env
+      - ./conf/common.env
     environment:
       CLUSTER_PORT: 6001
       NODE_HOST: node1
@@ -28,7 +28,7 @@ services:
   node2:
     image: bootstrap
     env_file:
-      - ./dev/common.env
+      - ./conf/common.env
     environment:
       CLUSTER_PORT: 6002
       NODE_HOST: node2
@@ -50,7 +50,7 @@ services:
   node3:
     image: bootstrap
     env_file:
-      - ./dev/common.env
+      - ./conf/common.env
     environment:
       CLUSTER_PORT: 6003
       NODE_HOST: node3
@@ -77,7 +77,7 @@ services:
     restart: always
     volumes:
       - valkey_data:/data
-      - ./dev/valkey.conf:/usr/local/etc/valkey/valkey.conf:ro
+      - ./conf/valkey.conf:/usr/local/etc/valkey/valkey.conf:ro
     networks:
       - seednet
 

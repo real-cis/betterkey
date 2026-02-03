@@ -49,7 +49,7 @@ func (bootstrap *Bootstrap) Start() {
 	node := NewNode(bootstrap.Cluster, bootstrap.Enclave, listener)
 	go node.Start()
 	listener.countdown.Wait()
-	server := web.NewHTTPServer(bootstrap.Cluster, node.KVDatabase(), node.NodeStatus(),
+	server := web.NewKeyServer(bootstrap.Cluster, node.KVDatabase(), node.NodeStatus(),
 		node.(*Node).masterKs.Read(), node.(*Node).NodeTls().ClientTlsConfig())
 	server.Start()
 

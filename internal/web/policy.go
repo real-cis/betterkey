@@ -8,10 +8,11 @@ import (
 
 	"github.com/google/go-tdx-guest/proto/tdx"
 	"gitlab.com/real-cis/cc/betterkey/internal/common"
+	"gitlab.com/real-cis/cc/betterkey/pkg/api"
 )
 
 type PolicyService interface {
-	Upsert(request PolicyUpdateRequest) error
+	Upsert(request api.PolicyUpdateRequest) error
 	Delete(id string) error
 	Verify(id string, quote *tdx.QuoteV4) (bool, error)
 }
@@ -26,7 +27,7 @@ func NewPolicyService(store common.BaseKeyStore) PolicyService {
 	}
 }
 
-func (p *DefaultPolicyService) Upsert(policyRequest PolicyUpdateRequest) error {
+func (p *DefaultPolicyService) Upsert(policyRequest api.PolicyUpdateRequest) error {
 	jsonData, err := json.Marshal(policyRequest)
 	if err != nil {
 		return err
@@ -52,7 +53,7 @@ func (p *DefaultPolicyService) Verify(id string, quote *tdx.QuoteV4) (bool, erro
 		slog.Info("no policy set for id, default allow", "id", id)
 		return true, nil
 	}
-	policyData := PolicyUpdateRequest{}
+	policyData := api.PolicyUpdateRequest{}
 	if err = json.Unmarshal(jsonData, &policyData); err != nil {
 		return false, NewError("Failed to fetch payload from policy store", http.StatusInternalServerError)
 	}

@@ -1,4 +1,4 @@
-package web
+package api
 
 import "github.com/google/go-tdx-guest/proto/tdx"
 
@@ -10,12 +10,14 @@ type VerifyResponse struct {
 type AttestationRequest struct {
 	SessionId string `json:"sessionId"`
 	Quote     string `json:"quote"`
+	EventLog  string `json:"eventLog,omitempty"`
 }
 
 type AttestationResponse struct {
 	Status  string       `json:"status"`
 	Payload string       `json:"payload"`
 	Quote   *tdx.QuoteV4 `json:"quote"`
+	KeySeed []byte       `json:"keySeed,omitempty"`
 }
 
 type AttestationRequestStore struct {
@@ -73,4 +75,16 @@ type SigningRequest struct {
 type SigningResponse struct {
 	Signatures map[string]string `json:"signatures"` // messageId -> base64-encoded signature
 	PublicKey  string            `json:"publicKey"`  // base64
+}
+
+type TdxSealRequest struct {
+	Id      string `json:"id"`
+	Mrtd    string `json:"mrtd"`
+	Cfv     string `json:"cfv"`
+	Payload string `json:"payload"`
+}
+
+type TdxSealResponse struct {
+	Id            string `json:"id"`
+	SealedPayload string `json:"sealedPayload"` // base64 - Nonce (12 bytes) || Ciphertext
 }

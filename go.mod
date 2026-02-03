@@ -1,6 +1,6 @@
 module gitlab.com/real-cis/cc/betterkey
 
-go 1.25.1
+go 1.25.4
 
 require (
 	github.com/BurntSushi/toml v1.4.0
@@ -97,6 +97,7 @@ require (
 	github.com/miekg/dns v1.1.63 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529 // indirect
+	gitlab.com/real-cis/cc/go-trust v0.0.0-20260203123638-578503ebb6c3
 	golang.org/x/crypto v0.36.0
 	golang.org/x/net v0.38.0 // indirect
 	golang.org/x/sys v0.31.0 // indirect
