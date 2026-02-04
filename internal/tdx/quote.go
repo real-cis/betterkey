@@ -10,83 +10,119 @@ import (
 	"github.com/google/go-tdx-guest/verify"
 )
 
-type QuoteVerifier interface {
-	Parse(rawQuote []byte) (*tdx.QuoteV4, error)
-	Verify(quote []byte) (*tdx.QuoteV4, error)
-	MatchReportData(quote []byte, expectedReportData []byte) error
-	MatchRTMR(quoteV4 *tdx.QuoteV4, rtmr0 []byte, rtmr1 []byte, rtmr2 []byte) error
+type TdxQuote struct {
+	raw     []byte
+	parsed  *tdx.QuoteV4
+	devMode bool
 }
 
-type TdxQuoteVerifier struct{}
-
-func NewTdxQuoteVerifier() QuoteVerifier {
-	return &TdxQuoteVerifier{}
+func NewTdxQuote(rawQuote []byte) (*TdxQuote, error) {
+	return NewTdxQuoteWithMode(rawQuote, false)
 }
 
-func (v *TdxQuoteVerifier) Parse(rawQuote []byte) (*tdx.QuoteV4, error) {
+func NewTdxQuoteWithMode(rawQuote []byte, devMode bool) (*TdxQuote, error) {
+	if len(rawQuote) == 0 {
+		return nil, fmt.Errorf("empty quote provided")
+	}
+
 	quotev4, err := abi.QuoteToProto(rawQuote)
 	if err != nil {
-		return &tdx.QuoteV4{}, fmt.Errorf("parsing TDX quote: %w", err)
+		return nil, fmt.Errorf("parsing TDX quote: %w", err)
 	}
-	parsedBytes, ok := quotev4.(*tdx.QuoteV4)
+
+	parsed, ok := quotev4.(*tdx.QuoteV4)
 	if !ok {
 		return nil, fmt.Errorf("failed to cast parsed quote to *tdx.QuoteV4")
 	}
-	return parsedBytes, nil
+
+	return &TdxQuote{
+		raw:     rawQuote,
+		parsed:  parsed,
+		devMode: devMode,
+	}, nil
 }
 
-func (v *TdxQuoteVerifier) Verify(rawQuote []byte) (*tdx.QuoteV4, error) {
-	quote, err := v.Parse(rawQuote)
-	if err != nil {
-		return nil, err
-	}
+func (q *TdxQuote) Parsed() *tdx.QuoteV4 {
+	return q.parsed
+}
+
+func (q *TdxQuote) Raw() []byte {
+	return q.raw
+}
+
+func (q *TdxQuote) Verify() error {
 	opt := verify.DefaultOptions()
 	opt.GetCollateral = true
 	opt.CheckRevocations = true
-	return quote, verify.RawTdxQuote(rawQuote, opt)
+	return verify.RawTdxQuote(q.raw, opt)
 }
 
-func (v *TdxQuoteVerifier) MatchReportData(rawQuote []byte, expectedReportData []byte) error {
-	quote, err := v.Parse(rawQuote)
-	if err != nil {
+func (q *TdxQuote) VerifyReportData(expectedReportData []byte) error {
+	if q.devMode {
+		slog.Info("Dev mode: skip matching report data")
+		return nil
+	}
+
+	if !bytes.Equal(q.parsed.TdQuoteBody.ReportData, expectedReportData) {
+		return fmt.Errorf("report data does not match: expected %x, got %x",
+			expectedReportData, q.parsed.TdQuoteBody.ReportData)
+	}
+	return nil
+}
+
+func (q *TdxQuote) VerifyRTMRs(rtmr0, rtmr1, rtmr2 []byte) error {
+	if err := q.VerifyRTMR(0, rtmr0); err != nil {
 		return err
 	}
-	if !bytes.Equal(quote.TdQuoteBody.ReportData, expectedReportData) {
-		return fmt.Errorf("report data does not match")
+	if err := q.VerifyRTMR(1, rtmr1); err != nil {
+		return err
+	}
+	if err := q.VerifyRTMR(2, rtmr2); err != nil {
+		return err
 	}
 	return nil
 }
 
-func (q *TdxQuoteVerifier) MatchRTMR(quoteV4 *tdx.QuoteV4, rtmr0 []byte, rtmr1 []byte, rtmr2 []byte) error {
-	slog.Info("Matching RTMRs", "quoteRTMR0", fmt.Sprintf("%x", quoteV4.TdQuoteBody.Rtmrs[0]), "expectedRTMR0", fmt.Sprintf("%x", rtmr0))
-	if !bytes.Equal(quoteV4.TdQuoteBody.Rtmrs[0], rtmr0) {
-		return fmt.Errorf("RTMR0 does not match")
+func (q *TdxQuote) VerifyRTMR(index int, expected []byte) error {
+	if index < 0 || index >= len(q.parsed.TdQuoteBody.Rtmrs) {
+		return fmt.Errorf("invalid RTMR index: %d", index)
 	}
-	slog.Info("Matching RTMRs", "quoteRTMR1", fmt.Sprintf("%x", quoteV4.TdQuoteBody.Rtmrs[1]), "expectedRTMR1", fmt.Sprintf("%x", rtmr1))
 
-	if !bytes.Equal(quoteV4.TdQuoteBody.Rtmrs[1], rtmr1) {
-		return fmt.Errorf("RTMR1 does not match")
-	}
-	slog.Info("Matching RTMRs", "quoteRTMR2", fmt.Sprintf("%x", quoteV4.TdQuoteBody.Rtmrs[2]), "expectedRTMR2", fmt.Sprintf("%x", rtmr2))
+	actual := q.parsed.TdQuoteBody.Rtmrs[index]
+	slog.Info("Matching RTMRs", "index", index, "quoteRTMR",
+		fmt.Sprintf("%x", actual), "expectedRTMR", fmt.Sprintf("%x", expected))
 
-	if !bytes.Equal(quoteV4.TdQuoteBody.Rtmrs[2], rtmr2) {
-		return fmt.Errorf("RTMR2 does not match")
+	if !bytes.Equal(actual, expected) {
+		return fmt.Errorf("RTMR%d does not match: expected %x, got %x",
+			index, expected, actual)
 	}
 	return nil
 }
 
-type DevTdxQuoteVerifier struct {
-	*TdxQuoteVerifier
+func (q *TdxQuote) GetMrTd() []byte {
+	return q.parsed.TdQuoteBody.MrTd
 }
 
-func NewDevTdxQuoteVerifier() QuoteVerifier {
-	return &DevTdxQuoteVerifier{
-		TdxQuoteVerifier: &TdxQuoteVerifier{},
+func (q *TdxQuote) GetRTMR(index int) ([]byte, error) {
+	if index < 0 || index >= len(q.parsed.TdQuoteBody.Rtmrs) {
+		return nil, fmt.Errorf("invalid RTMR index: %d", index)
 	}
+	return q.parsed.TdQuoteBody.Rtmrs[index], nil
 }
 
-func (m *DevTdxQuoteVerifier) MatchReportData(rawQuote []byte, expectedReportData []byte) error {
-	_, err := m.Parse(rawQuote)
-	slog.Info("Dev mode: skip matching report data")
-	return err
+// VerifyChain performs a complete verification chain
+func (q *TdxQuote) VerifyChain(reportData []byte, rtmr0, rtmr1, rtmr2 []byte) error {
+	if err := q.Verify(); err != nil {
+		return fmt.Errorf("quote cryptographic verification failed: %w", err)
+	}
+
+	if err := q.VerifyReportData(reportData); err != nil {
+		return fmt.Errorf("report data verification failed: %w", err)
+	}
+
+	if err := q.VerifyRTMRs(rtmr0, rtmr1, rtmr2); err != nil {
+		return fmt.Errorf("RTMR verification failed: %w", err)
+	}
+
+	return nil
 }
