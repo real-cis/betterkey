@@ -12,6 +12,7 @@ import (
 
 	"gitlab.com/real-cis/cc/betterkey/internal/common"
 	"gitlab.com/real-cis/cc/betterkey/internal/crypto"
+	"gitlab.com/real-cis/cc/betterkey/pkg/aes"
 	"gitlab.com/real-cis/cc/betterkey/pkg/api"
 )
 
@@ -199,7 +200,7 @@ func (v *VaultKeyService) TDXSeal(req api.TdxSealRequest) (*api.TdxSealResponse,
 	}
 
 	// Encrypt the payload
-	encryptedPayload, err := crypto.EncryptAESGCM(key, payload)
+	encryptedPayload, err := aes.EncryptAESGCM(key, payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encrypt payload: %w", err)
 	}
