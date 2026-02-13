@@ -172,6 +172,7 @@ func (a *AttestationVerificationProtocol) verifyRTMRs(quote *tdx.TdxQuote, event
 
 func (a *AttestationVerificationProtocol) extractAndVerifySecureBoot(eventLogger *ccel.EventLogger) ([]byte, *ErrorWithCode) {
 	var cfvHash []byte
+	secureBootEnabled := false
 	for _, event := range eventLogger.FilterByEventType([]tcg.EventType{
 		tcg.EvEfiPlatformFirmwareBlob2,
 		tcg.EvEfiVariableDriverConfig,
@@ -187,10 +188,15 @@ func (a *AttestationVerificationProtocol) extractAndVerifySecureBoot(eventLogger
 			switch uefiVar.Name.String() {
 			case "SecureBoot":
 				if hex.EncodeToString(event.GetDigests()[0].Hash) != EFISecureBootHash {
-					return nil, NewError("Secure Boot is not enabled", http.StatusUnauthorized)
+					return nil, NewError("Secure Boot digest mismatch", http.StatusUnauthorized)
 				}
+				secureBootEnabled = true
 			}
 		}
+	}
+
+	if !secureBootEnabled {
+		return nil, NewError("Secure Boot is not enabled", http.StatusUnauthorized)
 	}
 
 	return cfvHash, nil
