@@ -341,18 +341,14 @@ func (t *NetTransport) tcpListen(tcpLn net.Listener) {
 
 			// perform handshake
 			if err := tlsConn.Handshake(); err != nil {
-				slog.Error("[ERR] during handshake, error:%v", "error", err)
+				if err != io.EOF {
+					slog.Error("[ERR] during handshake", "error", err)
+				}
 				accepted = false
 				conn.Close()
 			}
 
 			state := tlsConn.ConnectionState()
-			/*
-				if len(state.PeerCertificates) == 0 {
-					slog.Error("[ERROR] no cert from remote, will close", "error", err)
-					accepted = false
-					conn.Close()
-				}*/
 			// debug
 			for _, v := range state.PeerCertificates {
 				slog.Info("remote certificate", "serialNr", v.SerialNumber, "DNSNames", v.DNSNames)

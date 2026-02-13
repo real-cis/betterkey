@@ -182,7 +182,6 @@ func NewNodeTlsConfig(CN string, enclaveConfig *common.EnclaveConfig) (common.No
 }
 
 func (n *SGXTlsConfig) ServerTlsConfig() *tls.Config {
-
 	tlsCfg := enclave.CreateAttestationClientTLSConfig(*n.reportVerifier)
 	tlsCfg.InsecureSkipVerify = true
 	tlsCfg.ClientAuth = tls.RequestClientCert
@@ -198,7 +197,6 @@ func (n *SGXTlsConfig) ServerTlsConfig() *tls.Config {
 }
 
 func (n *SGXTlsConfig) ClientTlsConfig() *tls.Config {
-
 	tlsCfg := enclave.CreateAttestationClientTLSConfig(*n.reportVerifier)
 	tlsCfg.InsecureSkipVerify = true
 	tlsCfg.Certificates = []tls.Certificate{
