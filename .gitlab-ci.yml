@@ -11,6 +11,7 @@ build:
     - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
   script:
     - echo "$SIGNER_KEY_PEM_B64" | base64 -d >signer-key.pem
+    - cp "$ENCLAVE_CONFIG" enclave-config.properties
     - |
       if [[ "$CI_COMMIT_BRANCH" == "main" ]]; then
         tag=""
@@ -19,7 +20,7 @@ build:
         tag=":$( echo $CI_COMMIT_BRANCH | sed 's/[^a-zA-Z0-9]/-/g' )"
         echo "Running on branch '$CI_COMMIT_BRANCH': tag = $tag"
       fi
-    - docker build --pull --build-arg SIGNERKEY=signer-key.pem -t "$CI_REGISTRY_IMAGE${tag}" .
+    - docker build --pull --build-arg SIGNERKEY=signer-key.pem --build-arg ENCLAVE_PROPS=enclave-config.properties -t "$CI_REGISTRY_IMAGE${tag}" .
     - docker push "$CI_REGISTRY_IMAGE${tag}"
 
 trigger-cloud-builder:
