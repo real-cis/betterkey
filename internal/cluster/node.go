@@ -311,7 +311,7 @@ func NewNode(clusterConfig *common.ClusterConfig, enclaveConfig *common.EnclaveC
 		inMessages:              make(chan PeerMessage, 1024),
 		stateChangeMessages:     make(chan int, 1024),
 		stateListener:           stateListener,
-		heartbeatManager:        NewHeartBeatManager(prov, 2*time.Minute, 15*time.Second, stateListener, nodeState),
+		heartbeatManager:        NewHeartBeatManager(prov, 15*time.Minute, 2*time.Minute, stateListener, nodeState),
 		nodeTls:                 nodeTls,
 	}
 
