@@ -27,22 +27,14 @@ const (
 )
 
 type AttestationVerificationProtocol struct {
-	store         common.BaseKeyStore
-	quoteVerifier tdx.QuoteVerifier
-	devMode       bool
+	store   common.BaseKeyStore
+	devMode bool
 }
 
 func NewAttestationProtocol(store common.BaseKeyStore, dev bool) ChallengeResponse {
-	var verifier tdx.QuoteVerifier
-	if dev {
-		verifier = tdx.NewDevTdxQuoteVerifier()
-	} else {
-		verifier = tdx.NewTdxQuoteVerifier()
-	}
 	return &AttestationVerificationProtocol{
-		store:         store,
-		quoteVerifier: verifier,
-		devMode:       dev,
+		store:   store,
+		devMode: dev,
 	}
 }
 
@@ -80,61 +72,111 @@ func (a *AttestationVerificationProtocol) Verify(sessionId string, tdQuote strin
 	if e != nil {
 		return nil, e
 	}
-	if tdQuote == "" {
-		return nil, NewError("Invalid quote", http.StatusUnauthorized)
-	}
-	quote, err := base64.StdEncoding.DecodeString(tdQuote)
+
+	quote, err := a.parseQuote(tdQuote)
 	if err != nil {
-		return nil, NewError("Invalid quote", http.StatusBadRequest)
+		return nil, err
 	}
 
-	quoteV4, err := a.quoteVerifier.Verify(quote)
-	if err != nil {
+	if err := quote.Verify(); err != nil {
 		// TODO handle verification failures due to out of date TCBs
 		// return nil, NewError("Quote verification failed", http.StatusUnauthorized)
 		slog.Error("Quote verification failed", "error", err)
 	}
 
-	err = a.quoteVerifier.MatchReportData(quote, requestStore.Nonce)
-	if err != nil {
+	if err := quote.VerifyReportData(requestStore.Nonce); err != nil {
 		return nil, NewError("verification of nonce failed", http.StatusUnauthorized)
 	}
 
 	if a.devMode {
 		// In dev mode, skip eventLog parsing
-		return &api.AttestationResponse{Status: "success", Payload: requestStore.Payload, Quote: quoteV4, KeySeed: quoteV4.TdQuoteBody.MrTd}, nil
+		return &api.AttestationResponse{
+			Status:  "success",
+			Payload: requestStore.Payload,
+			Quote:   quote.Parsed(),
+			KeySeed: quote.GetMrTd(),
+		}, nil
 	}
 
-	// decode eventlog base64
+	eventLogger, err := a.parseEventLog(eventLogB64)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := a.verifyRTMRs(quote, eventLogger); err != nil {
+		return nil, err
+	}
+
+	// Extract CFV and verify secure boot
+	cfvHash, err := a.extractAndVerifySecureBoot(eventLogger)
+	if err != nil {
+		return nil, err
+	}
+
+	keySeed := DeriveSeedFromMeasurements(quote.GetMrTd(), cfvHash)
+
+	// TODO: log to logstore
+
+	return &api.AttestationResponse{
+		Status:  "success",
+		Payload: requestStore.Payload,
+		Quote:   quote.Parsed(),
+		KeySeed: keySeed,
+	}, nil
+}
+
+func (a *AttestationVerificationProtocol) parseQuote(tdQuote string) (*tdx.TdxQuote, *ErrorWithCode) {
+	if tdQuote == "" {
+		return nil, NewError("Invalid quote", http.StatusUnauthorized)
+	}
+
+	quoteBytes, err := base64.StdEncoding.DecodeString(tdQuote)
+	if err != nil {
+		return nil, NewError("Invalid quote", http.StatusBadRequest)
+	}
+
+	quote, err := tdx.NewTdxQuoteWithMode(quoteBytes, a.devMode)
+	if err != nil {
+		return nil, NewError("Failed to parse quote: "+err.Error(), http.StatusBadRequest)
+	}
+
+	return quote, nil
+}
+
+func (a *AttestationVerificationProtocol) parseEventLog(eventLogB64 string) (*ccel.EventLogger, *ErrorWithCode) {
 	eventLog, err := base64.StdEncoding.DecodeString(eventLogB64)
 	if err != nil {
 		return nil, NewError("Invalid event log", http.StatusBadRequest)
 	}
 
-	eventlogger := ccel.NewEventLogger(eventLog, nil, tcg.PCClientFormat)
-	err = eventlogger.Parse()
-	if err != nil {
+	eventLogger := ccel.NewEventLogger(eventLog, nil, tcg.PCClientFormat)
+	if err := eventLogger.Parse(); err != nil {
 		return nil, NewError("Failed to parse event log: "+err.Error(), http.StatusBadRequest)
 	}
 
-	eventlogReplay := eventlogger.Replay()
+	return eventLogger, nil
+}
+
+func (a *AttestationVerificationProtocol) verifyRTMRs(quote *tdx.TdxQuote, eventLogger *ccel.EventLogger) *ErrorWithCode {
+	eventlogReplay := eventLogger.Replay()
 	rtmr0 := eventlogReplay[0][tcg.AlgSHA384]
 	rtmr1 := eventlogReplay[1][tcg.AlgSHA384]
 	rtmr2 := eventlogReplay[2][tcg.AlgSHA384]
-	err = a.quoteVerifier.MatchRTMR(quoteV4, rtmr0, rtmr1, rtmr2)
-	if err != nil {
-		return nil, NewError("RTMR0 verification failed: "+err.Error(), http.StatusUnauthorized)
+
+	if err := quote.VerifyRTMRs(rtmr0, rtmr1, rtmr2); err != nil {
+		return NewError("RTMR verification failed: "+err.Error(), http.StatusUnauthorized)
 	}
 
-	// Get CFV from event log
-	// Get secure boot measurements, verify secureboot flag
-	filteredEvents := eventlogger.FilterByEventType([]tcg.EventType{
+	return nil
+}
+
+func (a *AttestationVerificationProtocol) extractAndVerifySecureBoot(eventLogger *ccel.EventLogger) ([]byte, *ErrorWithCode) {
+	var cfvHash []byte
+	secureBootEnabled := false
+	for _, event := range eventLogger.FilterByEventType([]tcg.EventType{
 		tcg.EvEfiPlatformFirmwareBlob2,
 		tcg.EvEfiVariableDriverConfig,
-	})
-
-	var cfvHash []byte
-	for _, event := range filteredEvents {
+	}) {
 		eventType := event.GetEventType()
 
 		switch eventType {
@@ -146,14 +188,16 @@ func (a *AttestationVerificationProtocol) Verify(sessionId string, tdQuote strin
 			switch uefiVar.Name.String() {
 			case "SecureBoot":
 				if hex.EncodeToString(event.GetDigests()[0].Hash) != EFISecureBootHash {
-					return nil, NewError("Secure Boot is not enabled", http.StatusUnauthorized)
+					return nil, NewError("Secure Boot digest mismatch", http.StatusUnauthorized)
 				}
+				secureBootEnabled = true
 			}
 		}
 	}
-	keySeed := DeriveSeedFromMeasurements(quoteV4.TdQuoteBody.MrTd, cfvHash)
 
-	// TODO: log everything
+	if !secureBootEnabled {
+		return nil, NewError("Secure Boot is not enabled", http.StatusUnauthorized)
+	}
 
-	return &api.AttestationResponse{Status: "success", Payload: requestStore.Payload, Quote: quoteV4, KeySeed: keySeed}, nil
+	return cfvHash, nil
 }

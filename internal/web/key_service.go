@@ -6,12 +6,15 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"log/slog"
 
 	"gitlab.com/real-cis/cc/betterkey/internal/common"
 	"gitlab.com/real-cis/cc/betterkey/internal/crypto"
+	"gitlab.com/real-cis/cc/betterkey/pkg/aes"
 	"gitlab.com/real-cis/cc/betterkey/pkg/api"
 )
 
@@ -43,8 +46,14 @@ func NewKeyGenService(vault common.Vault, keyStore common.BaseKeyStore, devMode 
 	}
 }
 
+func (v *VaultKeyService) deriveHKDF(id string, data []byte, context api.Context) ([]byte, error) {
+	slog.Info("Deriving HKDF", "id", id, "data", hex.EncodeToString(data),
+		"context", context, "contextPrefix", v.contextPrefix)
+	return v.vault.HKDF(data, fmt.Sprintf("%s-%s-%s", v.contextPrefix, string(context), id), 32)
+}
+
 func (v *VaultKeyService) DeriveHKDF(id string, data []byte, context api.Context) (string, error) {
-	hkdf, err := v.vault.HKDF(data, fmt.Sprintf("%s-%s-%s", v.contextPrefix, string(context), id), 32)
+	hkdf, err := v.deriveHKDF(id, data, context)
 	if err != nil {
 		return "", err
 	}
@@ -52,7 +61,7 @@ func (v *VaultKeyService) DeriveHKDF(id string, data []byte, context api.Context
 }
 
 func (v *VaultKeyService) DeriveX25519(id string, data []byte, context api.Context) (*crypto.KeyPair, error) {
-	key, err := v.vault.HKDF(data, fmt.Sprintf("%s-%s-%s", v.contextPrefix, string(context), id), 32)
+	key, err := v.deriveHKDF(id, data, context)
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +69,7 @@ func (v *VaultKeyService) DeriveX25519(id string, data []byte, context api.Conte
 }
 
 func (v *VaultKeyService) DeriveECDSA(id string, data []byte, context api.Context, curve elliptic.Curve, length int) (*crypto.KeyPair, error) {
-	key, err := v.vault.HKDF(data, fmt.Sprintf("%s-%s-%s", v.contextPrefix, string(context), id), length)
+	key, err := v.deriveHKDF(id, data, context)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +85,7 @@ func (v *VaultKeyService) SignWithECDSA(req api.SigningRequest) (*api.SigningRes
 	if err != nil {
 		return nil, err
 	}
-	key, err := v.vault.HKDF(mrtd, fmt.Sprintf("%s-%s-%s", v.contextPrefix, string(req.Ctx), req.Id), 32)
+	key, err := v.deriveHKDF(req.Id, mrtd, req.Ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -172,6 +181,7 @@ func DeriveSeedFromMeasurements(mrtd, cfv []byte) []byte {
 	h := sha256.New()
 	h.Write(mrtd)
 	h.Write(cfv)
+	slog.Info("Deriving seed from TDX measurements", "mrtd", hex.EncodeToString(mrtd), "cfv", hex.EncodeToString(cfv))
 
 	return h.Sum(nil)
 }
@@ -193,13 +203,13 @@ func (v *VaultKeyService) TDXSeal(req api.TdxSealRequest) (*api.TdxSealResponse,
 
 	// Derive symmetric key from TDX measurements and boot configuration
 	seed := DeriveSeedFromMeasurements(mrtd, cfv)
-	key, err := v.vault.HKDF(seed, fmt.Sprintf("%s-%s-%s", v.contextPrefix, string(api.ContextVMBoot), req.Id), 32)
+	key, err := v.deriveHKDF(req.Id, seed, api.ContextVMBoot)
 	if err != nil {
 		return nil, err
 	}
 
 	// Encrypt the payload
-	encryptedPayload, err := crypto.EncryptAESGCM(key, payload)
+	encryptedPayload, err := aes.EncryptAESGCM(key, payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encrypt payload: %w", err)
 	}

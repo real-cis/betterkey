@@ -19,7 +19,6 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"slices"
@@ -88,10 +87,10 @@ func NewNodeTlsConfig(CN string, enclaveConfig *common.EnclaveConfig) (common.No
 	}
 
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-
 	if err != nil {
 		return nil, err
 	}
+
 	// get report for the public key
 	hash, err := crypto.HashPublicKey(&priv.PublicKey)
 	if err != nil {
@@ -182,7 +181,6 @@ func NewNodeTlsConfig(CN string, enclaveConfig *common.EnclaveConfig) (common.No
 }
 
 func (n *SGXTlsConfig) ServerTlsConfig() *tls.Config {
-
 	tlsCfg := enclave.CreateAttestationClientTLSConfig(*n.reportVerifier)
 	tlsCfg.InsecureSkipVerify = true
 	tlsCfg.ClientAuth = tls.RequestClientCert
@@ -198,7 +196,6 @@ func (n *SGXTlsConfig) ServerTlsConfig() *tls.Config {
 }
 
 func (n *SGXTlsConfig) ClientTlsConfig() *tls.Config {
-
 	tlsCfg := enclave.CreateAttestationClientTLSConfig(*n.reportVerifier)
 	tlsCfg.InsecureSkipVerify = true
 	tlsCfg.Certificates = []tls.Certificate{
@@ -228,12 +225,8 @@ func VerifyReport(report attestation.Report, config *common.EnclaveConfig) error
 		return fmt.Errorf("debug=%v does not match,expects %v", report.Debug, config.Debug)
 	}
 
-	signerId := make([]string, len(report.SignerID))
-	for i, v := range report.SignerID {
-		signerId[i] = fmt.Sprintf("%d", v)
-	}
-	if config.SignerId != strings.Join(signerId, " ") {
-		return fmt.Errorf("SignerId %s does not match,expects %v", string(report.SignerID), config.SignerId)
+	if config.SignerId != hex.EncodeToString(report.SignerID) {
+		return fmt.Errorf("SignerId %s does not match,expects %s", hex.EncodeToString(report.SignerID), config.SignerId)
 	}
 
 	slog.Info("attestation.Report verifed successfully")

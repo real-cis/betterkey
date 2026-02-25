@@ -1,8 +1,10 @@
-package crypto
+package aes
 
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/hex"
+	"fmt"
 	"testing"
 )
 
@@ -13,13 +15,17 @@ func TestEncryptDecryptAESGCM(t *testing.T) {
 		key[i] = byte(i)
 	}
 
-	plaintext := []byte("This is a test message for encryption")
+	plaintext := []byte("Veera is the best!")
+	fmt.Println("Plaintext: ", string(plaintext))
+	fmt.Println("Key (Hex): ", hex.EncodeToString(key))
 
 	// Encrypt
 	encrypted, err := EncryptAESGCM(key, plaintext)
 	if err != nil {
 		t.Fatalf("Encryption failed: %v", err)
 	}
+
+	fmt.Println("Encrypted (base64): ", encrypted)
 
 	// Verify it's base64 encoded
 	_, err = base64.StdEncoding.DecodeString(encrypted)

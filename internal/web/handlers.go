@@ -74,7 +74,7 @@ func (s *KeyServer) keyRequestVerify(r *http.Request) (*api.AttestationResponse,
 }
 
 func (s *KeyServer) keyRequestFinalize(id string, keyType api.KeyType, ctx api.Context,
-	seed []byte, quote *tdx.QuoteV4) (*api.KeyResponse, *ErrorWithCode) {
+	seed []byte, _ *tdx.QuoteV4) (*api.KeyResponse, *ErrorWithCode) {
 	slog.Info("key derivation request", "type", keyType, "id", id, "context", ctx)
 
 	var key any
@@ -142,7 +142,7 @@ func (s *KeyServer) handleSgxQuoteVerify(w http.ResponseWriter, r *http.Request)
 	}
 	quote, err := base64.StdEncoding.DecodeString(req.SignedQuote)
 	if err != nil {
-		respondError(w, http.StatusBadRequest, fmt.Sprintf("bad quote format:%v", err))
+		respondError(w, http.StatusBadRequest, fmt.Sprintf("bad encoding:%v", err))
 		return
 	}
 	response, err := sgx.ValidateSignedQuote(quote)
@@ -152,6 +152,7 @@ func (s *KeyServer) handleSgxQuoteVerify(w http.ResponseWriter, r *http.Request)
 			slog.Error("attestation.ErrTCBLevelInvalid accepted", "report", response)
 			respondJSON(w, http.StatusOK, response)
 		} else {
+			slog.Error("attestation error", "report", response)
 			respondError(w, http.StatusBadRequest, fmt.Sprintf("bad quote :%v", err))
 		}
 	} else {
@@ -192,6 +193,7 @@ func (s *KeyServer) handleGenerateAttestation(w http.ResponseWriter, _ *http.Req
 }
 
 func (s *KeyServer) tdxSealRequestInit(req api.TdxSealRequest) (*api.VerifyResponse, *ErrorWithCode) {
+	slog.Info("TDX seal request init", "request", req)
 	// Validate fields
 	if req.Mrtd == "" || req.Cfv == "" || req.Payload == "" {
 		return nil, &ErrorWithCode{Code: http.StatusBadRequest, Message: "Missing required parameters"}
