@@ -10,7 +10,8 @@ COPY . ./
 RUN sed -e "s|_SIGNERKEY_|${SIGNERKEY}|g" \
     -e "s|_ENCLAVE_PROPS_|${ENCLAVE_PROPS}|g" enclave.json.template >enclave.json
 RUN ego-go build -tags=ionos cmd/bootstrap/main.go
-RUN ego sign main && ego signerid main
+RUN ego sign main
+RUN ego signerid main
 
 # Run with deploy container
 FROM ghcr.io/edgelesssys/ego-deploy:v1.8.1
