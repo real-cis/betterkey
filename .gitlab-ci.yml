@@ -17,7 +17,7 @@ build:
         cp "$ENCLAVE_CONFIG" enclave-config.properties
         ENCLAVE_ARG="--build-arg ENCLAVE_PROPS=enclave-config.properties"
       else
-        echo "ENCLAVE_CONFIG not available (protected branch only), using default dev/conf/enclave.properties"
+        echo "ENCLAVE_CONFIG not available (protected branch only), using dev defaults"
         cp dev/conf/test-private.pem signer-key.pem
         ENCLAVE_ARG="--build-arg ENCLAVE_PROPS=dev/conf/enclave.properties"
       fi
