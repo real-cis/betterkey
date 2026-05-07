@@ -30,7 +30,7 @@ All node-to-node communication uses **transparent attested TLS**:
 #### Certificate Generation
 
 - Each node generates a keypair
-- Hashes the public key and requests TDX/SGX quote with hash as report data
+- Hashes the public key and requests SGX quote with hash as report data
 - Embeds the hardware quote in X.509 certificate extension
 
 #### Peer Verification
