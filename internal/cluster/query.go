@@ -50,15 +50,22 @@ func (c *Node) handleQueryKey(p *PeerMessage) {
 		slog.Error("error serializing MSG_TYPE_KEYQUERY_RESP", "error", err)
 	}
 	go func() {
-		for _, m := range c.list.Members() {
-			if m.Name == p.Sender.Id {
+		for {
+			for _, m := range c.list.Members() {
+				if m.Name != p.Sender.Id {
+					continue
+				}
 				slog.Info("sending key", "to", m.Addr)
 				err = c.list.SendReliable(m, pl)
 				if err != nil {
 					slog.Error("error sending MSG_TYPE_KEYQUERY_RESP", "error", err)
 				}
-				break
+				return
 			}
+			// Sender not yet visible in member list (gossip not propagated).
+			// Retry until it appears.
+			slog.Debug("handleQueryKey: sender not yet in member list, retrying", "sender", p.Sender.Id)
+			time.Sleep(500 * time.Millisecond)
 		}
 	}()
 }
