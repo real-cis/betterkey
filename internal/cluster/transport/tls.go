@@ -1,5 +1,5 @@
 // Copyright (c) 2017-2024 HashiCorp, Inc.
-// Copyright (C) 2025 real-cis GmbH
+// Copyright (C) 2025-2026 real-cis GmbH
 
 // SPDX-License-Identifier: MPL-2.0
 
@@ -22,14 +22,13 @@ import (
 	"github.com/hashicorp/memberlist"
 )
 
+// Connection type bytes - the first byte written on every outbound TCP
+// connection so that the receiving tcpListen goroutine can route it correctly:
+//   - tcpConnStream: push/pull state exchange (memberlist stream handler)
+//   - tcpConnPacket: gossip / probe packet (memberlist packet handler)
 const (
-	// udpPacketBufSize is used to buffer incoming packets during read
-	// operations.
-	udpPacketBufSize = 65536
-
-	// udpRecvBufSize is a large buffer size that we attempt to set UDP
-	// sockets to in order to handle a large volume of messages.
-	udpRecvBufSize = 2 * 1024 * 1024
+	tcpConnStream = byte(0)
+	tcpConnPacket = byte(1)
 )
 
 // NetTransportConfig is used to configure a net transport.
@@ -52,15 +51,14 @@ type NetTransportConfig struct {
 	TLSClientConfig *tls.Config
 }
 
-// NetTransport is a Transport implementation that uses connectionless UDP for
-// packet operations, and ad-hoc TCP connections for stream operations.
+// NetTransport is a Transport implementation that uses TLS TCP for both
+// packet (gossip/probe) and stream (push/pull) operations. UDP is not used.
 type NetTransport struct {
 	config       *NetTransportConfig
 	packetCh     chan *memberlist.Packet
 	streamCh     chan net.Conn
 	wg           sync.WaitGroup
 	tcpListeners []*Listener
-	udpListeners []*net.UDPConn
 	shutdown     int32
 
 	metricLabels []metrics.Label
@@ -117,23 +115,12 @@ func NewNetTransport(config *NetTransportConfig) (*NetTransport, error) {
 		if port == 0 {
 			port = tcpLn.Addr().(*net.TCPAddr).Port
 		}
-
-		udpAddr := &net.UDPAddr{IP: ip, Port: port}
-		udpLn, err := net.ListenUDP("udp", udpAddr)
-		if err != nil {
-			return nil, fmt.Errorf("Failed to start UDP listener on %q port %d: %v", addr, port, err)
-		}
-		if err := setUDPRecvBuf(udpLn); err != nil {
-			return nil, fmt.Errorf("Failed to resize UDP buffer: %v", err)
-		}
-		t.udpListeners = append(t.udpListeners, udpLn)
 	}
 
 	// Fire them up now that we've been able to create them all.
 	for i := 0; i < len(config.BindAddrs); i++ {
-		t.wg.Add(2)
+		t.wg.Add(1)
 		go t.tcpListen(*t.tcpListeners[i].listener)
-		go t.udpListen(t.udpListeners[i])
 	}
 
 	ok = true
@@ -201,19 +188,22 @@ func (t *NetTransport) WriteTo(b []byte, addr string) (time.Time, error) {
 }
 
 // See NodeAwareTransport.
+// All gossip/probe packets are sent over a short-lived TLS TCP connection.
+// The first byte identifies the connection as a packet so that tcpListen
+// can route it to IngestPacket instead of the stream handler.
 func (t *NetTransport) WriteToAddress(b []byte, a memberlist.Address) (time.Time, error) {
-	addr := a.Addr
-
-	udpAddr, err := net.ResolveUDPAddr("udp", addr)
+	conn, err := tls.DialWithDialer(
+		&net.Dialer{Timeout: 3 * time.Second},
+		"tcp", a.Addr, t.config.TLSClientConfig,
+	)
 	if err != nil {
 		return time.Time{}, err
 	}
-
-	// We made sure there's at least one UDP listener, so just use the
-	// packet sending interface on the first one. Take the time after the
-	// write call comes back, which will underestimate the time a little,
-	// but help account for any delays before the write occurs.
-	_, err = t.udpListeners[0].WriteTo(b, udpAddr)
+	defer conn.Close()
+	pkt := make([]byte, 1+len(b))
+	pkt[0] = tcpConnPacket
+	copy(pkt[1:], b)
+	_, err = conn.Write(pkt)
 	return time.Now(), err
 }
 
@@ -257,11 +247,18 @@ func (t *NetTransport) DialTimeout(addr string, timeout time.Duration) (net.Conn
 }
 
 // See NodeAwareTransport.
+// Write the stream type byte immediately so tcpListen routes this connection
+// to the memberlist stream handler (push/pull) rather than IngestPacket.
 func (t *NetTransport) DialAddressTimeout(a memberlist.Address, timeout time.Duration) (net.Conn, error) {
-	dialer := &net.Dialer{
-		Timeout: timeout,
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: timeout}, "tcp", a.Addr, t.config.TLSClientConfig)
+	if err != nil {
+		return nil, err
 	}
-	return tls.DialWithDialer(dialer, "tcp", a.Addr, t.config.TLSClientConfig)
+	if _, err := conn.Write([]byte{tcpConnStream}); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	return conn, nil
 }
 
 // See Transport.
@@ -284,9 +281,6 @@ func (t *NetTransport) Shutdown() error {
 	// Rip through all the connections and shut them down.
 	for _, conn := range t.tcpListeners {
 		(*conn.listener).Close()
-	}
-	for _, conn := range t.udpListeners {
-		conn.Close()
 	}
 
 	// Block until all the listener threads have died.
@@ -334,7 +328,7 @@ func (t *NetTransport) tcpListen(tcpLn net.Listener) {
 			// get the underlying tls connection
 			tlsConn, ok := conn.(*tls.Conn)
 			if !ok {
-				fmt.Printf("[ERR]:server, this is not a tls conn")
+				slog.Error("[ERR]:server, this is not a tls conn")
 				accepted = false
 				conn.Close()
 			}
@@ -357,60 +351,32 @@ func (t *NetTransport) tcpListen(tcpLn net.Listener) {
 		}
 		// No error, reset loop delay
 		if accepted {
-			slog.Info("tls-conn from client OK")
+			slog.Debug("tls-conn from client OK")
 			loopDelay = 0
-			t.streamCh <- conn
-		}
-	}
-}
-
-// udpListen is a long running goroutine that accepts incoming UDP packets and
-// hands them off to the packet channel.
-func (t *NetTransport) udpListen(udpLn *net.UDPConn) {
-	defer t.wg.Done()
-	for {
-		// Do a blocking read into a fresh buffer. Grab a time stamp as
-		// close as possible to the I/O.
-		buf := make([]byte, udpPacketBufSize)
-		n, addr, err := udpLn.ReadFrom(buf)
-		ts := time.Now()
-		if err != nil {
-			if s := atomic.LoadInt32(&t.shutdown); s == 1 {
-				break
+			// Read the single connection-type byte written by the dialer.
+			// EOF here is benign: a peer can finish the handshake then close
+			// before sending the byte (e.g. dial time out mid RA-TLS).
+			var typeBuf [1]byte
+			if _, err := io.ReadFull(conn, typeBuf[:]); err != nil {
+				if err != io.EOF {
+					slog.Error("failed to read connection type byte", "error", err)
+				}
+				conn.Close()
+				continue
 			}
-
-			slog.Error("[ERR] memberlist: Error reading UDP packet:", "error", err)
-			continue
-		}
-
-		// Check the length - it needs to have at least one byte to be a
-		// proper message.
-		if n < 1 {
-			slog.Error("[ERR] memberlist: UDP packet too short", "buffLength", len(buf), "addr", memberlist.LogAddress(addr))
-			continue
-		}
-
-		// Ingest the packet.
-		metrics.IncrCounterWithLabels([]string{"memberlist", "udp", "received"}, float32(n), t.metricLabels)
-		t.packetCh <- &memberlist.Packet{
-			Buf:       buf[:n],
-			From:      addr,
-			Timestamp: ts,
+			switch typeBuf[0] {
+			case tcpConnPacket:
+				t.wg.Go(func() {
+					if err := t.IngestPacket(conn, conn.RemoteAddr(), time.Now(), true); err != nil {
+						slog.Error("IngestPacket error", "error", err)
+					}
+				})
+			case tcpConnStream:
+				t.streamCh <- conn
+			default:
+				slog.Error("unknown connection type byte", "byte", typeBuf[0])
+				conn.Close()
+			}
 		}
 	}
-}
-
-// setUDPRecvBuf is used to resize the UDP receive window. The function
-// attempts to set the read buffer to `udpRecvBuf` but backs off until
-// the read buffer can be set.
-func setUDPRecvBuf(c *net.UDPConn) error {
-	size := udpRecvBufSize
-	var err error
-	for size > 0 {
-		if err = c.SetReadBuffer(size); err == nil {
-			return nil
-		}
-		size = size / 2
-	}
-	return err
 }
