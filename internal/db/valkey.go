@@ -103,6 +103,45 @@ func (s *ValKeyKeyService) WriteWithTTL(id string, value []byte, ttl int) error 
 	return s.client.Do(ctx, s.client.B().Expire().Key(s.namespace+id).Seconds(int64(ttl)).Build()).Error()
 }
 
+func (s *ValKeyKeyService) WriteNX(id string, value []byte, ttlSeconds int) (bool, error) {
+	vault := s.transformer()
+	if vault == nil {
+		return false, common.ErrNoEncryptionService
+	}
+	data, err := vault.Seal(value)
+	if err != nil {
+		return false, err
+	}
+	ctx := context.Background()
+	// HSETNX is atomic: only the first caller creates the "data" field. A lock
+	// previously left behind by a crashed node is reclaimed automatically once
+	// its TTL lapses and the whole key disappears.
+	acquired, err := s.client.Do(ctx,
+		s.client.B().Hsetnx().
+			Key(s.namespace+id).Field("data").Value(valkey.BinaryString(data)).
+			Build()).AsBool()
+	if err != nil {
+		return false, err
+	}
+	if !acquired {
+		return false, nil
+	}
+	if err := s.client.Do(ctx,
+		s.client.B().Hset().
+			Key(s.namespace+id).FieldValue().
+			FieldValue("size", strconv.Itoa(len(data))).
+			FieldValue("modtime", strconv.FormatInt(time.Now().Unix(), 10)).
+			Build()).Error(); err != nil {
+		return true, err
+	}
+	if ttlSeconds > 0 {
+		if err := s.client.Do(ctx, s.client.B().Expire().Key(s.namespace+id).Seconds(int64(ttlSeconds)).Build()).Error(); err != nil {
+			return true, err
+		}
+	}
+	return true, nil
+}
+
 func (s *ValKeyKeyService) Delete(id string) error {
 	ctx := context.Background()
 	err := s.client.Do(ctx, s.client.B().Del().Key(s.namespace+id).Build()).Error()

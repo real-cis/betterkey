@@ -5,9 +5,19 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"time"
 
 	"github.com/caddyserver/certmagic"
 	"gitlab.com/real-cis/cc/betterkey/internal/common"
+)
+
+const (
+	// lockTTLSeconds bounds how long a lock survives if its owner crashes
+	// without unlocking; after this the store expires the key so other nodes
+	// can take over instead of deadlocking forever.
+	lockTTLSeconds = 300
+	// lockPollInterval is how often Lock retries while the lock is held.
+	lockPollInterval = 2 * time.Second
 )
 
 // implements certmagic.Storage interface
@@ -77,14 +87,30 @@ func (c *CertStorage) Stat(ctx context.Context, key string) (certmagic.KeyInfo, 
 	}, nil
 }
 
+// Lock implements certmagic.Locker. Per the contract it blocks until the lock
+// is acquired or ctx is cancelled, rather than failing fast when the lock is
+// held. Acquisition is atomic (WriteNX) and the lock carries a TTL so a crashed
+// owner cannot deadlock the cluster.
 func (c *CertStorage) Lock(ctx context.Context, key string) error {
 	slog.Info(fmt.Sprintf("Acquire lock for key %s", key))
-	_, err := c.Load(ctx, key)
-	if err == fs.ErrNotExist {
-		c.Store(ctx, key, []byte(c.nodeId))
-		return nil
+	for {
+		acquired, err := c.client.WriteNX(key, []byte(c.nodeId), lockTTLSeconds)
+		if c.client.HasNil(err) {
+			err = nil
+		}
+		if err != nil {
+			return err
+		}
+		if acquired {
+			return nil
+		}
+		// Held by another node: wait and retry, honoring cancellation.
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(lockPollInterval):
+		}
 	}
-	return fmt.Errorf("key %s already exists", key)
 }
 
 func (c *CertStorage) Unlock(ctx context.Context, key string) error {
