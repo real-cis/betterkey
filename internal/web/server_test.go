@@ -35,6 +35,11 @@ func (m *MockKeyStore) WriteWithTTL(id string, key []byte, ttl int) error {
 	return args.Error(0)
 }
 
+func (m *MockKeyStore) WriteNX(id string, key []byte, ttl int) (bool, error) {
+	args := m.Called(id, key, ttl)
+	return args.Bool(0), args.Error(1)
+}
+
 func (m *MockKeyStore) Delete(id string) error {
 	args := m.Called(id)
 	return args.Error(0)
