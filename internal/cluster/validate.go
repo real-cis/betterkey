@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
+
+	"github.com/hashicorp/memberlist"
 )
 
 func (c *Node) validatingExistingKey() {
@@ -21,9 +23,10 @@ func (c *Node) validatingExistingKey() {
 	}
 
 	// wait until someone has key
-	joinedMembers := c.list.Members()
+	var joinedMembers []*memberlist.Node
 	for {
-		if !membersCanProvideKey(c.list.Members()) {
+		joinedMembers = c.list.Members()
+		if !membersCanProvideKey(joinedMembers) {
 			slog.Info("no member has key, loop wait")
 			time.Sleep(5 * time.Second)
 		} else {
