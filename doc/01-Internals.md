@@ -30,7 +30,7 @@ All node-to-node communication uses **transparent attested TLS**:
 #### Certificate Generation
 
 - Each node generates a keypair
-- Hashes the public key and requests TDX/SGX quote with hash as report data
+- Hashes the public key and requests SGX quote with hash as report data
 - Embeds the hardware quote in X.509 certificate extension
 
 #### Peer Verification
@@ -102,13 +102,11 @@ The HTTP API server starts only after the node reaches `READY` state.
 * Key derivation, at the moment, is enabled for TDX VMs, and the requesting client must pass an attestation challenge
     - Key derivation service generates a nonce and session id, and send these as an attestation challenge to the requesting client.
     - The client, upon receiving the nonce, generates a TD Report with nonce as the Report Data, and sends the signed quote back to key derivation service.
-    - Key derivation service will validate the nonce and the quote, and generates a key based on the quote's measurement parameters as seed.
+    - Key derivation service validates the nonce and quote, then derives a key seed from both MRTD and CFV measurements.
 
 #### Key Derivation Flow
 
-1. Client submits TDX quote 
-2. Server verifies quote against configured MRTD policy
-3. Server derives key using HKDF: `HKDF(masterKey, MRTD || payload, context)`
-4. Derived key stored encrypted in Valkey with session TTL
-
-See API Endpoints and handlers.go.
+1. Client submits TDX quote, eventlog data
+2. Server verifies quote/event log and extracts MRTD, CFV from Eventlog
+3. Server derives a seed from `SHA256(MRTD || CFV)`, then derives key material via HKDF
+4. The derived key is sent to the client in response

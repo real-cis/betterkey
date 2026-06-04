@@ -11,5 +11,5 @@ type DNSProvider interface {
 
 // no-op placeholder for tooling without tags.
 func NewProvider(token string) DNSProvider {
-	panic("no DNS provider selected (build with -tags <provider>)")
+	panic("no DNS provider selected (build with -tags=<provider>)")
 }

@@ -23,17 +23,18 @@ type AcmeConfig struct {
 
 func (a *AcmeConfig) Setup() *certmagic.Config {
 	certmagic.Default.Storage = NewCertStorage(a.KVStore, a.NodeId)
-	cm := certmagic.NewDefault()
-	cm.Issuers = []certmagic.Issuer{certmagic.NewACMEIssuer(cm, certmagic.ACMEIssuer{
-		CA:     a.AcmeProvider,
-		Email:  a.AcmeOwner,
-		Agreed: true,
-		DNS01Solver: &certmagic.DNS01Solver{
-			DNSManager: certmagic.DNSManager{
-				DNSProvider: a.DnsProvider,
-			},
+	certmagic.DefaultACME.CA = a.AcmeProvider
+	certmagic.DefaultACME.Email = a.AcmeOwner
+	certmagic.DefaultACME.Agreed = true
+	certmagic.DefaultACME.DisableHTTPChallenge = true
+	certmagic.DefaultACME.DisableTLSALPNChallenge = true
+	certmagic.DefaultACME.DNS01Solver = &certmagic.DNS01Solver{
+		DNSManager: certmagic.DNSManager{
+			DNSProvider: a.DnsProvider,
 		},
-	})}
+	}
+
+	cm := certmagic.NewDefault()
 
 	for range a.RetryCount {
 		err := cm.ManageSync(context.Background(), []string{a.Domain})

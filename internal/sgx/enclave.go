@@ -138,7 +138,7 @@ func NewNodeTlsConfig(CN string, enclaveConfig *common.EnclaveConfig) (common.No
 			// verify embedded report
 			for _, ex := range cert.Extensions {
 				if ex.Id.Equal(oidOeNewQuote) {
-					slog.Info("verifying remote certificate", "dnsNames", cert.DNSNames)
+					slog.Debug("verifying remote certificate", "dnsNames", cert.DNSNames)
 					report, err := enclave.VerifyRemoteReport(ex.Value)
 					if err != nil {
 						return err
@@ -229,7 +229,7 @@ func VerifyReport(report attestation.Report, config *common.EnclaveConfig) error
 		return fmt.Errorf("SignerId %s does not match,expects %s", hex.EncodeToString(report.SignerID), config.SignerId)
 	}
 
-	slog.Info("attestation.Report verifed successfully")
+	slog.Debug("attestation.Report verifed successfully")
 	return nil
 }
 

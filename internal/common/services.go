@@ -23,6 +23,8 @@ type KeyStore interface {
 	BaseKeyStore
 	List(prefix string, recursive bool) ([]string, error)
 	Stat(id string) (*StorageStat, error)
+	// atomically write value at id with a TTL only if id does not already exist.
+	WriteNX(id string, value []byte, ttlSeconds int) (bool, error)
 }
 
 // All operations involving master secret

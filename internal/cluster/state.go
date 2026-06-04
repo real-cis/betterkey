@@ -73,9 +73,23 @@ func (c *Node) setStatus(stat int) {
 
 func (c *Node) notifyStateChange() {
 	for {
-		st := <-c.stateChangeMessages
+		st, ok := <-c.stateChangeMessages
+		if !ok {
+			return
+		}
+		// Notify listener first, before the peer broadcast.
 		if c.stateListener != nil {
 			c.stateListener.OnStateChanged(st)
+		}
+		// Propagate the new state into memberlist's internal node record so
+		// that state.Meta stays consistent with what NodeMeta() returns.
+		// Without this, memberlist initialises state.Meta once at Create()
+		// (state=0) and never updates it, causing a refute on every push/pull
+		// where a remote node sends back our own NodeMeta.
+		if c.list != nil {
+			if err := c.list.UpdateNode(5 * time.Second); err != nil {
+				slog.Error("UpdateNode failed after state change", "error", err, "state", st)
+			}
 		}
 	}
 }

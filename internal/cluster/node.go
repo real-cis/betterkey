@@ -104,6 +104,16 @@ func (c *Node) Start() {
 		}
 		if slices.Contains(c.seedNodes, c.id) {
 			slog.Info("Seed Node, using local MK", "nodeId", c.id)
+			for {
+				pc, err := c.list.Join(c.configuredPeerAddresses)
+				if pc == 0 {
+					slog.Error("no peers on join(), wait loop", "error", err)
+					time.Sleep(5 * time.Second)
+				} else {
+					slog.Info("joined", "error", err, "peers", pc)
+					break
+				}
+			}
 			c.setStatus(NODE_STATE_READY)
 		} else {
 			c.validatingExistingKey()
@@ -188,13 +198,9 @@ func (n *Node) MergeRemoteState(buf []byte, join bool) {
 			return
 		}
 
-		for _, mb := range n.list.Members() {
-			if mb.Name == m.Id && mb.Name != n.state.nodeInfo.Id {
-				slog.Debug("updating peer meta", "id", mb.Name)
-				mb.Meta = buf[:]
-			}
-		}
-
+		// Don't mutate .Meta on n.list.Members()[i] which are live pointers into memberlist's
+		// internal nodeState. Changing which corrupts the incarnation/refute state and triggers a
+		// permanent refute loop when the heartbeat nonce changes
 		if m.Id != n.state.nodeInfo.Id && m.HeartBeat != nil && m.HeartBeat.Nonce != "" {
 			n.heartbeatManager.OnRemoteHeartBeat(m.Id, *m.HeartBeat)
 		}
@@ -205,13 +211,23 @@ func (n *Node) MergeRemoteState(buf []byte, join bool) {
 // NodeMeta is used to retrieve meta-data about the current node
 // when broadcasting an alive message. It's length is limited to
 // the given byte size. This metadata is available in the Node structure.
+//
+// Returns only stable fields (id, clusterId, state); the rotating heartbeat nonce
+// must NOT be included, or memberlist's per-message Meta comparison triggers a permanent
+// refute loop (heartbeat flows through LocalState/MergeRemoteState instead).
 func (n *Node) NodeMeta(limit int) []byte {
-	m := n.NodeStatus()
-	b, err := json.Marshal(m)
+	n.lock.Lock()
+	nm := &common.NodeMeta{
+		Id:        n.state.nodeInfo.Id,
+		ClusterId: n.state.nodeInfo.ClusterId,
+		State:     n.state.state,
+	}
+	n.lock.Unlock()
+	b, err := json.Marshal(nm)
 	if err != nil {
 		slog.Error("Delegate.NodeMeta", "error", err)
 	}
-	slog.Debug("Delegate.NodeMeta()", "state", m.State, "id", m.Id)
+	slog.Debug("Delegate.NodeMeta()", "state", nm.State, "id", nm.Id)
 	return b
 }
 
@@ -311,11 +327,18 @@ func NewNode(clusterConfig *common.ClusterConfig, enclaveConfig *common.EnclaveC
 		inMessages:              make(chan PeerMessage, 1024),
 		stateChangeMessages:     make(chan int, 1024),
 		stateListener:           stateListener,
-		heartbeatManager:        NewHeartBeatManager(prov, 2*time.Minute, 15*time.Second, stateListener, nodeState),
+		heartbeatManager:        NewHeartBeatManager(prov, 15*time.Minute, 2*time.Minute, stateListener, nodeState),
 		nodeTls:                 nodeTls,
 	}
 
 	config := memberlist.DefaultWANConfig()
+	// DefaultWANConfig was designed for cheap UDP probes. With TCP-only
+	// transport every probe/gossip broadcast runs a full RA-TLS attestation handshake.
+	// Increase default timeout intervals
+	config.ProbeInterval = 30 * time.Second
+	config.ProbeTimeout = 10 * time.Second
+	config.GossipInterval = 5 * time.Second
+	config.PushPullInterval = 60 * time.Second
 	sKey := sha256.Sum256([]byte(clusterConfig.EncryptionKey))
 	config.Name = clusterConfig.NodeHost
 	config.SecretKey = sKey[:]
