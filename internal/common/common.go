@@ -124,7 +124,6 @@ const (
 	STORE_PREFIX_ECDSA_KEY         string = "ecdsa:"
 	STORE_PREFIX_SESSION           string = "session:"
 	STORE_PREFIX_DEV               string = "dev:"
-	STORE_PREFIX_POLICY            string = "policy:"
 	KEY_REQ_SESSION_EXPIRY_SECONDS int    = 1 * 60
 	KEY_GEN_CONTEXT_EC             string = "context-ec-keypair"
 	KEY_GEN_CONTEXT_SYMMETRIC      string = "context-symmetric-secret"

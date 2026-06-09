@@ -2,7 +2,9 @@ package crypto
 
 import (
 	"crypto/rand"
+	"fmt"
 	"io"
+	"time"
 
 	"github.com/hashicorp/go-uuid"
 )
@@ -22,4 +24,10 @@ func GenerateUUID() string {
 		panic(err)
 	}
 	return id
+}
+
+// GenerateSessionID returns a time-sortable session identifier of the form
+// "<epoch-ms>.<uuid>".
+func GenerateSessionID() string {
+	return fmt.Sprintf("%013d.%s", time.Now().UnixMilli(), GenerateUUID())
 }
