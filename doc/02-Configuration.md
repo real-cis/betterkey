@@ -31,6 +31,12 @@ VALKEY_NAMESPACE=prod
 ACME_DNS_API_TOKEN=<dns-api-token>
 ACME_OWNER=admin@example.com
 SERVER_DOMAIN=betterkey.example.com
+
+# Journal (optional)
+JOURNAL_S3_ENDPOINT=<s3-endpoint-url>
+JOURNAL_S3_REGION=<s3-region>
+JOURNAL_S3_ACCESS_KEY=<s3-access-key>
+JOURNAL_S3_SECRET_KEY=<s3-secret-key>
 ```
 
 ### Enclave Configuration 
@@ -54,6 +60,14 @@ Betterkey uses DNS challenge for ACME authorization and a DNS provider must be a
 
 * Check `providers/dns/` for implementation example
 * For custom DNS providers, adapt build to use a tag - `-tags=<dns-provider>`
+
+### Journal Provider
+
+Betterkey can optionally journal every key request - the requester id, the TDX quote, and the event log - to an S3 object store, as a build-time plugin under `providers/journal/`.
+
+* Build with the tag `-tags=s3` to compile in the S3 backend
+* Set the `JOURNAL_S3_*` environment variables; the journal activates automatically once `JOURNAL_S3_ENDPOINT` and `JOURNAL_S3_SECRET_KEY` are set, and falls back to a no-op otherwise
+* Writes are asynchronous and best-effort - a journal failure never blocks or fails key delivery
 
 ### Development Mode
 

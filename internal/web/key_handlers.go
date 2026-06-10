@@ -1,14 +1,20 @@
 package web
 
 import (
+	"context"
 	"crypto/elliptic"
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/google/go-tdx-guest/proto/tdx"
 	"gitlab.com/real-cis/cc/betterkey/pkg/api"
+	"gitlab.com/real-cis/cc/betterkey/providers/journal"
 )
+
+// journalWriteTimeout bounds a single (asynchronous) journal write.
+const journalWriteTimeout = 30 * time.Second
 
 func (s *KeyServer) keyRequestInit(req api.KeyRequest) (*api.VerifyResponse, *ErrorWithCode) {
 	if req.Type == "" || req.Id == "" {
@@ -96,15 +102,39 @@ func (s *KeyServer) handleKeyRequestFinalize(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// drop the session after a successful verification.
+	// remove the session after a successful verification.
 	if err := s.sessions.Delete(attestationRequest.SessionId); err != nil {
 		slog.Warn("failed to delete finalized session", "sessionId", attestationRequest.SessionId, "error", err)
 	}
 
 	keyResponse, e := s.keyRequestFinalize(keyRequest.Id, keyRequest.Type, keyRequest.Ctx, verifyResponse.KeySeed, verifyResponse.Quote)
 	if e != nil {
+		s.journalKeyRequest(keyRequest.Id, attestationRequest.SessionId, "Key request failed: "+e.Message,
+			attestationRequest.Quote, attestationRequest.EventLog)
 		respondError(w, e.Code, e.Message)
 		return
 	}
+	s.journalKeyRequest(keyRequest.Id, attestationRequest.SessionId, "Key request succeeded",
+		attestationRequest.Quote, attestationRequest.EventLog)
 	respondJSON(w, http.StatusOK, keyResponse)
+}
+
+// asynchronously records a key-request outcome to the journal.; non-blocking/best effort
+func (s *KeyServer) journalKeyRequest(resourceId, sessionId, payload, quote, eventLog string) {
+	rec := journal.Record{
+		Category:   journal.CategoryKDS,
+		Type:       journal.TypeKeyRequest,
+		ResourceId: resourceId,
+		SessionId:  sessionId,
+		Payload:    payload,
+		Quote:      quote,
+		EventLog:   eventLog,
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), journalWriteTimeout)
+		defer cancel()
+		if err := s.journal.Write(ctx, rec); err != nil {
+			slog.Warn("journal write failed", "resourceId", resourceId, "sessionId", sessionId, "error", err)
+		}
+	}()
 }

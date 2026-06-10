@@ -15,6 +15,7 @@ import (
 	"gitlab.com/real-cis/cc/betterkey/internal/common"
 	"gitlab.com/real-cis/cc/betterkey/internal/web/cert"
 	"gitlab.com/real-cis/cc/betterkey/providers/dns"
+	"gitlab.com/real-cis/cc/betterkey/providers/journal"
 )
 
 type KeyServer struct {
@@ -27,6 +28,7 @@ type KeyServer struct {
 	keyService               KeyGenService
 	challengeResponse        ChallengeResponse // challenge response for VM attestation
 	sealingChallengeResponse ChallengeResponse // challenge response for sealing operations
+	journal                  journal.Journal   // journal for key requests
 }
 
 func NewKeyServer(config *common.ClusterConfig, kvStore common.KeyStore,
@@ -66,6 +68,12 @@ func NewKeyServer(config *common.ClusterConfig, kvStore common.KeyStore,
 	challengeResponse := NewAttestationProtocol(sessions, false)
 	sealingChallengeResponse := NewAttestationProtocol(sessions, config.DevMode)
 	keyGenService := NewKeyGenService(vault, keyStore, config.DevMode)
+	journalService := journal.NewJournal(journal.Config{
+		Endpoint:  config.JournalEndpoint,
+		Region:    config.JournalRegion,
+		AccessKey: config.JournalAccessKey,
+		SecretKey: config.JournalSecretKey,
+	})
 	sv := &KeyServer{
 		Router:                   router,
 		Port:                     config.ServerPort,
@@ -76,6 +84,7 @@ func NewKeyServer(config *common.ClusterConfig, kvStore common.KeyStore,
 		keyService:               keyGenService,
 		challengeResponse:        challengeResponse,
 		sealingChallengeResponse: sealingChallengeResponse,
+		journal:                  journalService,
 	}
 
 	router.Use(LoggingMiddleware, DefaultHeaders)
