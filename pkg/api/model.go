@@ -25,12 +25,6 @@ type AttestationRequestStore struct {
 	Payload string `json:"payload"`
 }
 
-type PolicyUpdateRequest struct {
-	Id     string `json:"id"`
-	Mrtd   string `json:"mrtd"`
-	Kernel string `json:"kernel,omitempty"`
-}
-
 type KeyType string
 
 const (

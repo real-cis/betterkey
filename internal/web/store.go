@@ -11,30 +11,6 @@ type NamespacedKeyStore struct {
 	namespace string
 }
 
-func NewSessionKeyStore(store common.KeyStore, dev bool) common.BaseKeyStore {
-	prefix := ""
-	slog.Info("session store dev mode:", "dev", dev)
-	if dev {
-		prefix = common.STORE_PREFIX_DEV
-	}
-	return &NamespacedKeyStore{
-		store:     store,
-		namespace: prefix,
-	}
-}
-
-func NewPolicyStore(store common.KeyStore, dev bool) common.BaseKeyStore {
-	prefix := common.STORE_PREFIX_POLICY
-	slog.Info("policy store dev mode:", "dev", dev)
-	if dev {
-		prefix = common.STORE_PREFIX_DEV + common.STORE_PREFIX_POLICY
-	}
-	return &NamespacedKeyStore{
-		store:     store,
-		namespace: prefix,
-	}
-}
-
 func (s *NamespacedKeyStore) Read(id string) ([]byte, error) {
 	return s.store.Read(s.namespace + id)
 }
@@ -57,4 +33,16 @@ func (s *NamespacedKeyStore) Delete(id string) error {
 
 func (s *NamespacedKeyStore) Exists(id string) (int64, error) {
 	return s.store.Exists(s.namespace + id)
+}
+
+func NewSessionKeyStore(store common.KeyStore, dev bool) common.BaseKeyStore {
+	prefix := ""
+	slog.Info("session store dev mode:", "dev", dev)
+	if dev {
+		prefix = common.STORE_PREFIX_DEV
+	}
+	return &NamespacedKeyStore{
+		store:     store,
+		namespace: prefix,
+	}
 }

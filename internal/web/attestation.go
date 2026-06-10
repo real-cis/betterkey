@@ -3,11 +3,9 @@ package web
 import (
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"log/slog"
 	"net/http"
 
-	"gitlab.com/real-cis/cc/betterkey/internal/common"
 	"gitlab.com/real-cis/cc/betterkey/internal/crypto"
 	"gitlab.com/real-cis/cc/betterkey/internal/tdx"
 	"gitlab.com/real-cis/cc/betterkey/pkg/api"
@@ -17,8 +15,10 @@ import (
 )
 
 type ChallengeResponse interface {
+	// Init initializes an attestation session and returns a nonce, session ID
 	Init(requestData string) (*api.VerifyResponse, error)
-	Verify(sessionId string, tdQuote string, eventLog string) (*api.AttestationResponse, *ErrorWithCode)
+	// Verify verifies the quote against an already-fetched session record,
+	Verify(record *api.AttestationRequestStore, tdQuote string, eventLog string) (*api.AttestationResponse, *ErrorWithCode)
 }
 
 const (
@@ -27,52 +27,27 @@ const (
 )
 
 type AttestationVerificationProtocol struct {
-	store   common.BaseKeyStore
-	devMode bool
+	sessions *SessionStore
+	devMode  bool
 }
 
-func NewAttestationProtocol(store common.BaseKeyStore, dev bool) ChallengeResponse {
+func NewAttestationProtocol(sessions *SessionStore, dev bool) ChallengeResponse {
 	return &AttestationVerificationProtocol{
-		store:   store,
-		devMode: dev,
+		sessions: sessions,
+		devMode:  dev,
 	}
 }
 
 func (a *AttestationVerificationProtocol) Init(requestData string) (*api.VerifyResponse, error) {
 	nonce := crypto.GenerateNonce(64)
-	sessionId := crypto.GenerateUUID()
-
-	jsonData, err := json.Marshal(api.AttestationRequestStore{Nonce: nonce, Payload: requestData})
+	sessionId, err := a.sessions.Create(nonce, requestData)
 	if err != nil {
-		return nil, err
-	}
-	if err := a.store.WriteWithTTL(common.STORE_PREFIX_SESSION+sessionId,
-		jsonData, common.KEY_REQ_SESSION_EXPIRY_SECONDS); err != nil {
 		return nil, err
 	}
 	return &api.VerifyResponse{Nonce: base64.StdEncoding.EncodeToString(nonce), SessionId: sessionId}, nil
 }
 
-func DefaultStoreRead(store common.BaseKeyStore, sessionId string) (*api.AttestationRequestStore, *ErrorWithCode) {
-	jsonData, err := store.Read(common.STORE_PREFIX_SESSION + sessionId)
-	if store.HasNil(err) {
-		return nil, NewError("Session expired or invalid", http.StatusUnauthorized)
-	} else if err != nil {
-		return nil, NewError("Failed to fetch session", http.StatusInternalServerError)
-	}
-	requestStore := api.AttestationRequestStore{}
-	if err = json.Unmarshal(jsonData, &requestStore); err != nil {
-		return nil, NewError("Failed to fetch payload from session store", http.StatusInternalServerError)
-	}
-	return &requestStore, nil
-}
-
-func (a *AttestationVerificationProtocol) Verify(sessionId string, tdQuote string, eventLogB64 string) (*api.AttestationResponse, *ErrorWithCode) {
-	requestStore, e := DefaultStoreRead(a.store, sessionId)
-	if e != nil {
-		return nil, e
-	}
-
+func (a *AttestationVerificationProtocol) Verify(requestStore *api.AttestationRequestStore, tdQuote string, eventLogB64 string) (*api.AttestationResponse, *ErrorWithCode) {
 	quote, err := a.parseQuote(tdQuote)
 	if err != nil {
 		return nil, err
@@ -114,8 +89,6 @@ func (a *AttestationVerificationProtocol) Verify(sessionId string, tdQuote strin
 	}
 
 	keySeed := DeriveSeedFromMeasurements(quote.GetMrTd(), cfvHash)
-
-	// TODO: log to logstore
 
 	return &api.AttestationResponse{
 		Status:  "success",

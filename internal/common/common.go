@@ -16,27 +16,31 @@ var ErrHeartBeatNonceMismatched = errors.New("nonce mismatched")
 
 // ClusterConfig holds the configuration for the node/cluster
 type ClusterConfig struct {
-	Id              string   `env:"CLUSTER_ID"`
-	EncryptionKey   string   `env:"CLUSTER_ENCRYPTIONKEY"`
-	Port            uint32   `env:"CLUSTER_PORT"`
-	PeerAddresses   []string `env:"CLUSTER_PEERS"`
-	SeedNodes       []string `env:"SEED_NODES"`
-	BindAddress     string   `env:"BIND_ADDRESS" envDefault:"0.0.0.0"`
-	NodeHost        string   `env:"NODE_HOST"`
-	MasterKeyFolder string   `env:"MASTERKEY_FOLDER" envDefault:"/sealed"`
-	ValkeyUris      []string `env:"VALKEY_URIS"`
-	ValkeyUser      string   `env:"VALKEY_USER"`
-	ValkeyPassword  string   `env:"VALKEY_PASSWORD"`
-	ValkeyNamespace string   `env:"VALKEY_NAMESPACE"`
-	ValkeyTLS       bool     `env:"VALKEY_TLS" envDefault:"false"`
-	Domain          string   `env:"SERVER_DOMAIN"`
-	ServerPort      int      `env:"SERVER_PORT"`
-	AcmeDnsToken    string   `env:"ACME_DNS_API_TOKEN"`
-	AcmeOwner       string   `env:"ACME_OWNER"`
-	AcmeRetryDelay  int      `env:"ACME_RETRY_DELAY" envDefault:"5"`
-	AcmeRetryCount  int      `env:"ACME_RETRY_COUNT" envDefault:"10"`
-	AcmeProvider    string   `env:"ACME_PROVIDER" envDefault:"https://acme-v02.api.letsencrypt.org/directory"`
-	DevMode         bool     `env:"DEV_MODE" envDefault:"true"`
+	Id               string   `env:"CLUSTER_ID"`
+	EncryptionKey    string   `env:"CLUSTER_ENCRYPTIONKEY"`
+	Port             uint32   `env:"CLUSTER_PORT"`
+	PeerAddresses    []string `env:"CLUSTER_PEERS"`
+	SeedNodes        []string `env:"SEED_NODES"`
+	BindAddress      string   `env:"BIND_ADDRESS" envDefault:"0.0.0.0"`
+	NodeHost         string   `env:"NODE_HOST"`
+	MasterKeyFolder  string   `env:"MASTERKEY_FOLDER" envDefault:"/sealed"`
+	ValkeyUris       []string `env:"VALKEY_URIS"`
+	ValkeyUser       string   `env:"VALKEY_USER"`
+	ValkeyPassword   string   `env:"VALKEY_PASSWORD"`
+	ValkeyNamespace  string   `env:"VALKEY_NAMESPACE"`
+	ValkeyTLS        bool     `env:"VALKEY_TLS" envDefault:"false"`
+	Domain           string   `env:"SERVER_DOMAIN"`
+	ServerPort       int      `env:"SERVER_PORT"`
+	AcmeDnsToken     string   `env:"ACME_DNS_API_TOKEN"`
+	AcmeOwner        string   `env:"ACME_OWNER"`
+	AcmeRetryDelay   int      `env:"ACME_RETRY_DELAY" envDefault:"5"`
+	AcmeRetryCount   int      `env:"ACME_RETRY_COUNT" envDefault:"10"`
+	AcmeProvider     string   `env:"ACME_PROVIDER" envDefault:"https://acme-v02.api.letsencrypt.org/directory"`
+	DevMode          bool     `env:"DEV_MODE" envDefault:"true"`
+	JournalEndpoint  string   `env:"JOURNAL_S3_ENDPOINT"`
+	JournalRegion    string   `env:"JOURNAL_S3_REGION"`
+	JournalAccessKey string   `env:"JOURNAL_S3_ACCESS_KEY"`
+	JournalSecretKey string   `env:"JOURNAL_S3_SECRET_KEY"`
 }
 
 // Configuration for the SGX enclave
@@ -124,7 +128,6 @@ const (
 	STORE_PREFIX_ECDSA_KEY         string = "ecdsa:"
 	STORE_PREFIX_SESSION           string = "session:"
 	STORE_PREFIX_DEV               string = "dev:"
-	STORE_PREFIX_POLICY            string = "policy:"
 	KEY_REQ_SESSION_EXPIRY_SECONDS int    = 1 * 60
 	KEY_GEN_CONTEXT_EC             string = "context-ec-keypair"
 	KEY_GEN_CONTEXT_SYMMETRIC      string = "context-symmetric-secret"

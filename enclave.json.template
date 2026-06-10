@@ -28,6 +28,10 @@
             "source": "/etc/ssl/certs",
             "target": "/etc/ssl/certs",
             "type": "hostfs"
+        },
+        {
+            "target": "/tmp",
+            "type": "memfs"
         }
     ],
     "env": [
@@ -109,6 +113,22 @@
         },
         {
             "name": "DEV_MODE",
+            "fromHost": true
+        },
+        {
+            "name": "JOURNAL_S3_ENDPOINT",
+            "fromHost": true
+        },
+        {
+            "name": "JOURNAL_S3_REGION",
+            "fromHost": true
+        },
+        {
+            "name": "JOURNAL_S3_ACCESS_KEY",
+            "fromHost": true
+        },
+        {
+            "name": "JOURNAL_S3_SECRET_KEY",
             "fromHost": true
         }
     ],

@@ -15,6 +15,7 @@ import (
 	"gitlab.com/real-cis/cc/betterkey/internal/common"
 	"gitlab.com/real-cis/cc/betterkey/internal/web/cert"
 	"gitlab.com/real-cis/cc/betterkey/providers/dns"
+	"gitlab.com/real-cis/cc/betterkey/providers/journal"
 )
 
 type KeyServer struct {
@@ -23,10 +24,11 @@ type KeyServer struct {
 	Domain                   string
 	NodeHost                 string
 	server                   *http.Server
+	sessions                 *SessionStore // attestation session record persistence
 	keyService               KeyGenService
-	policyService            PolicyService
 	challengeResponse        ChallengeResponse // challenge response for VM attestation
 	sealingChallengeResponse ChallengeResponse // challenge response for sealing operations
+	journal                  journal.Journal   // journal for key requests
 }
 
 func NewKeyServer(config *common.ClusterConfig, kvStore common.KeyStore,
@@ -61,19 +63,28 @@ func NewKeyServer(config *common.ClusterConfig, kvStore common.KeyStore,
 	}
 
 	keyStore := NewSessionKeyStore(kvStore, config.DevMode)
+	sessions := NewSessionStore(keyStore)
 	// VMs always fully attest themselves, devMode=false
-	challengeResponse := NewAttestationProtocol(keyStore, false)
-	sealingChallengeResponse := NewAttestationProtocol(keyStore, config.DevMode)
+	challengeResponse := NewAttestationProtocol(sessions, false)
+	sealingChallengeResponse := NewAttestationProtocol(sessions, config.DevMode)
 	keyGenService := NewKeyGenService(vault, keyStore, config.DevMode)
+	journalService := journal.NewJournal(journal.Config{
+		Endpoint:  config.JournalEndpoint,
+		Region:    config.JournalRegion,
+		AccessKey: config.JournalAccessKey,
+		SecretKey: config.JournalSecretKey,
+	})
 	sv := &KeyServer{
 		Router:                   router,
 		Port:                     config.ServerPort,
 		Domain:                   config.Domain,
 		NodeHost:                 config.NodeHost,
 		server:                   server,
+		sessions:                 sessions,
 		keyService:               keyGenService,
 		challengeResponse:        challengeResponse,
 		sealingChallengeResponse: sealingChallengeResponse,
+		journal:                  journalService,
 	}
 
 	router.Use(LoggingMiddleware, DefaultHeaders)
@@ -83,8 +94,6 @@ func NewKeyServer(config *common.ClusterConfig, kvStore common.KeyStore,
 }
 
 func (s *KeyServer) registerRoutes() {
-	s.Router.Get("/tdx/verify", s.handleVerifyRequest)
-	s.Router.Post("/tdx/verify", s.handleVerifyQuote)
 	s.Router.Post("/key/init", s.handleKeyRequestInit)
 	s.Router.Post("/key/finalize", s.handleKeyRequestFinalize)
 	s.Router.Post("/tdx/seal/init", s.handleTdxSealInit)

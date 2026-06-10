@@ -1,12 +1,12 @@
 module gitlab.com/real-cis/cc/betterkey
 
-go 1.25.4
+go 1.26.2
 
 require (
 	github.com/BurntSushi/toml v1.4.0
-	github.com/caarlos0/env/v11 v11.3.1
+	github.com/caarlos0/env/v11 v11.4.0
 	github.com/caddyserver/certmagic v0.22.2
-	github.com/edgelesssys/ego v1.8.1
+	github.com/edgelesssys/ego v1.9.0
 	github.com/go-chi/chi/v5 v5.2.1
 	github.com/google/go-tdx-guest v0.3.1
 	github.com/hashicorp/go-metrics v0.5.4
@@ -19,6 +19,7 @@ require (
 	github.com/testcontainers/testcontainers-go v0.36.0
 	github.com/valkey-io/valkey-go v1.0.64
 	gitlab.com/real-cis/cc/go-trust v0.0.0-20260203123638-578503ebb6c3
+	gitlab.com/real-cis/libs/scaleway-s3-client v0.0.0-20260610130710-f5620e1eb56b
 	golang.org/x/crypto v0.36.0
 )
 
