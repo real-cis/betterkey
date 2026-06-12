@@ -1,7 +1,6 @@
 package web
 
 import (
-	"context"
 	"crypto/elliptic"
 	"encoding/json"
 	"log/slog"
@@ -135,7 +134,7 @@ func (s *KeyServer) handleKeyRequestFinalize(w http.ResponseWriter, r *http.Requ
 
 // asynchronously records a key-request outcome to the journal.; non-blocking/best effort
 func (s *KeyServer) journalKeyRequest(resourceId, sessionId, payload, quote, eventLog string, status journal.Status) {
-	rec := journal.Record{
+	s.logJournal(journal.Record{
 		Category:   journal.CategoryKDS,
 		Type:       journal.TypeKeyRequest,
 		ResourceId: resourceId,
@@ -144,12 +143,5 @@ func (s *KeyServer) journalKeyRequest(resourceId, sessionId, payload, quote, eve
 		Quote:      quote,
 		EventLog:   eventLog,
 		Status:     status,
-	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), journalWriteTimeout)
-		defer cancel()
-		if err := s.journal.Write(ctx, rec); err != nil {
-			slog.Warn("journal write failed", "resourceId", resourceId, "sessionId", sessionId, "error", err)
-		}
-	}()
+	})
 }

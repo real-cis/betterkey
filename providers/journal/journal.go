@@ -12,6 +12,7 @@ type Status string
 const (
 	CategoryKDS    Category = "KDS"
 	TypeKeyRequest Type     = "KEY_REQUEST"
+	TypeTDXSeal    Type     = "TDX_SEAL"
 	StatusSuccess  Status   = "SUCCESS"
 	StatusFailure  Status   = "FAIL"
 )

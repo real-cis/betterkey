@@ -129,3 +129,14 @@ func (s *KeyServer) Stop() {
 
 	slog.Info("Server stopped.")
 }
+
+// asynchronously persists a journal record; non-blocking/best effort
+func (s *KeyServer) logJournal(rec journal.Record) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), journalWriteTimeout)
+		defer cancel()
+		if err := s.journal.Write(ctx, rec); err != nil {
+			slog.Warn("journal write failed", "resourceId", rec.ResourceId, "sessionId", rec.SessionId, "error", err)
+		}
+	}()
+}
