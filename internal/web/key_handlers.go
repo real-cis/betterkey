@@ -1,14 +1,13 @@
 package web
 
 import (
-	"context"
 	"crypto/elliptic"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"time"
 
-	"github.com/google/go-tdx-guest/proto/tdx"
+	"gitlab.com/real-cis/cc/betterkey/internal/tdx"
 	"gitlab.com/real-cis/cc/betterkey/pkg/api"
 	"gitlab.com/real-cis/cc/betterkey/providers/journal"
 )
@@ -32,7 +31,7 @@ func (s *KeyServer) keyRequestInit(req api.KeyRequest) (*api.VerifyResponse, *Er
 }
 
 func (s *KeyServer) keyRequestFinalize(id string, keyType api.KeyType, ctx api.Context,
-	seed []byte, _ *tdx.QuoteV4) (*api.KeyResponse, *ErrorWithCode) {
+	seed []byte) (*api.KeyResponse, *ErrorWithCode) {
 	slog.Info("key derivation request", "type", keyType, "id", id, "context", ctx)
 
 	var key any
@@ -96,9 +95,21 @@ func (s *KeyServer) handleKeyRequestFinalize(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Verify the quote against the already-fetched record
-	verifyResponse, e := s.challengeResponse.Verify(record, attestationRequest.Quote, attestationRequest.EventLog)
+	quote, e := s.challengeResponse.Verify(record, attestationRequest.Quote)
 	if e != nil {
 		keyResponseError(w, e.Code, e.Message)
+		return
+	}
+
+	// Verify the event log against the quote and extract the CFV
+	eventLog, err := tdx.NewEventLog(attestationRequest.EventLog)
+	if err != nil {
+		keyResponseError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	cfv, err := eventLog.Verify(quote)
+	if err != nil {
+		keyResponseError(w, http.StatusUnauthorized, err.Error())
 		return
 	}
 
@@ -107,21 +118,33 @@ func (s *KeyServer) handleKeyRequestFinalize(w http.ResponseWriter, r *http.Requ
 		slog.Warn("failed to delete finalized session", "sessionId", attestationRequest.SessionId, "error", err)
 	}
 
-	keyResponse, e := s.keyRequestFinalize(keyRequest.Id, keyRequest.Type, keyRequest.Ctx, verifyResponse.KeySeed, verifyResponse.Quote)
+	// Derive the key seed from the verified TDX measurements
+	keySeed := DeriveSeedFromMeasurements(quote.GetMrTd(), cfv)
+	keyResponse, e := s.keyRequestFinalize(keyRequest.Id, keyRequest.Type, keyRequest.Ctx, keySeed)
 	if e != nil {
 		s.journalKeyRequest(keyRequest.Id, attestationRequest.SessionId, "Key request failed: "+e.Message,
-			attestationRequest.Quote, attestationRequest.EventLog)
+			attestationRequest.Quote, marshalEventLogSummary(eventLog), journal.StatusFailure)
 		respondError(w, e.Code, e.Message)
 		return
 	}
 	s.journalKeyRequest(keyRequest.Id, attestationRequest.SessionId, "Key request succeeded",
-		attestationRequest.Quote, attestationRequest.EventLog)
+		attestationRequest.Quote, marshalEventLogSummary(eventLog), journal.StatusSuccess)
 	respondJSON(w, http.StatusOK, keyResponse)
 }
 
+// marshalEventLogSummary returns the event log summary as JSON; best effort, empty on error.
+func marshalEventLogSummary(eventLog *tdx.EventLog) string {
+	summary, err := json.Marshal(eventLog.Summary())
+	if err != nil {
+		slog.Warn("failed to marshal event log summary", "error", err)
+		return ""
+	}
+	return string(summary)
+}
+
 // asynchronously records a key-request outcome to the journal.; non-blocking/best effort
-func (s *KeyServer) journalKeyRequest(resourceId, sessionId, payload, quote, eventLog string) {
-	rec := journal.Record{
+func (s *KeyServer) journalKeyRequest(resourceId, sessionId, payload, quote, eventLog string, status journal.Status) {
+	s.logJournal(journal.Record{
 		Category:   journal.CategoryKDS,
 		Type:       journal.TypeKeyRequest,
 		ResourceId: resourceId,
@@ -129,12 +152,6 @@ func (s *KeyServer) journalKeyRequest(resourceId, sessionId, payload, quote, eve
 		Payload:    payload,
 		Quote:      quote,
 		EventLog:   eventLog,
-	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), journalWriteTimeout)
-		defer cancel()
-		if err := s.journal.Write(ctx, rec); err != nil {
-			slog.Warn("journal write failed", "resourceId", resourceId, "sessionId", sessionId, "error", err)
-		}
-	}()
+		Status:     status,
+	})
 }

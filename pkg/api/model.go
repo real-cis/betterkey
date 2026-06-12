@@ -15,7 +15,6 @@ type AttestationRequest struct {
 
 type AttestationResponse struct {
 	Status  string       `json:"status"`
-	Payload string       `json:"payload"`
 	Quote   *tdx.QuoteV4 `json:"quote"`
 	KeySeed []byte       `json:"keySeed,omitempty"`
 }
