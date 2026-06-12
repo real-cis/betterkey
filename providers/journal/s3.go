@@ -46,6 +46,7 @@ func (j *s3Journal) Write(ctx context.Context, rec Record) error {
 		Payload:     rec.Payload,
 		ResourceId:  rec.ResourceId,
 		Timestamp:   time.Now().UnixMilli(),
+		Status:      rec.Status,
 	}
 	jsonEntry, err := json.MarshalIndent(entry, "", "  ")
 	if err != nil {

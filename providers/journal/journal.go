@@ -7,9 +7,13 @@ type Category string
 
 type Type string
 
+type Status string
+
 const (
 	CategoryKDS    Category = "KDS"
 	TypeKeyRequest Type     = "KEY_REQUEST"
+	StatusSuccess  Status   = "SUCCESS"
+	StatusFailure  Status   = "FAIL"
 )
 
 // Entry json persisted for each journal record.
@@ -19,6 +23,7 @@ type Entry struct {
 	Payload     string   `json:"payload"`
 	ResourceId  string   `json:"resourceId"`
 	Timestamp   int64    `json:"timeStamp"` // Unix epoch milliseconds
+	Status      Status   `json:"status"`
 }
 
 // Single journal event together with the artifacts to persist.
@@ -28,6 +33,7 @@ type Record struct {
 	ResourceId string
 	SessionId  string
 	Payload    string
+	Status     Status
 
 	// TDX quote in base64
 	Quote    string

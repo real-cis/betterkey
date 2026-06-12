@@ -110,17 +110,17 @@ func (s *KeyServer) handleKeyRequestFinalize(w http.ResponseWriter, r *http.Requ
 	keyResponse, e := s.keyRequestFinalize(keyRequest.Id, keyRequest.Type, keyRequest.Ctx, verifyResponse.KeySeed, verifyResponse.Quote)
 	if e != nil {
 		s.journalKeyRequest(keyRequest.Id, attestationRequest.SessionId, "Key request failed: "+e.Message,
-			attestationRequest.Quote, attestationRequest.EventLog)
+			attestationRequest.Quote, attestationRequest.EventLog, journal.StatusFailure)
 		respondError(w, e.Code, e.Message)
 		return
 	}
 	s.journalKeyRequest(keyRequest.Id, attestationRequest.SessionId, "Key request succeeded",
-		attestationRequest.Quote, attestationRequest.EventLog)
+		attestationRequest.Quote, attestationRequest.EventLog, journal.StatusSuccess)
 	respondJSON(w, http.StatusOK, keyResponse)
 }
 
 // asynchronously records a key-request outcome to the journal.; non-blocking/best effort
-func (s *KeyServer) journalKeyRequest(resourceId, sessionId, payload, quote, eventLog string) {
+func (s *KeyServer) journalKeyRequest(resourceId, sessionId, payload, quote, eventLog string, status journal.Status) {
 	rec := journal.Record{
 		Category:   journal.CategoryKDS,
 		Type:       journal.TypeKeyRequest,
@@ -129,6 +129,7 @@ func (s *KeyServer) journalKeyRequest(resourceId, sessionId, payload, quote, eve
 		Payload:    payload,
 		Quote:      quote,
 		EventLog:   eventLog,
+		Status:     status,
 	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), journalWriteTimeout)
