@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
@@ -79,76 +78,4 @@ func (s *KeyServer) handleGenerateAttestation(w http.ResponseWriter, _ *http.Req
 	}
 
 	respondJSON(w, http.StatusOK, api.SGXQuote{SignedQuote: base64.StdEncoding.EncodeToString(att)})
-}
-
-func (s *KeyServer) tdxSealRequestInit(req api.TdxSealRequest) (*api.VerifyResponse, *ErrorWithCode) {
-	slog.Info("TDX seal request init", "request", req)
-	// Validate fields
-	if req.Mrtd == "" || req.Cfv == "" || req.Payload == "" {
-		return nil, &ErrorWithCode{Code: http.StatusBadRequest, Message: "Missing required parameters"}
-	}
-
-	jsonData, err := json.Marshal(req)
-	if err != nil {
-		return nil, &ErrorWithCode{Code: http.StatusInternalServerError, Message: "failed to marshal request data"}
-	}
-
-	resp, err := s.sealingChallengeResponse.Init(string(jsonData))
-	if err != nil {
-		return nil, &ErrorWithCode{Code: http.StatusInternalServerError, Message: "init verify request failed"}
-	}
-	return resp, nil
-}
-
-func (s *KeyServer) tdxSealRequestVerify(r *http.Request) (*api.AttestationResponse, *ErrorWithCode) {
-	req, err := decodeRequest[api.AttestationRequest](r)
-	if err != nil {
-		return nil, &ErrorWithCode{Code: http.StatusBadRequest, Message: "Invalid request"}
-	}
-	record, e := s.sessions.Get(req.SessionId)
-	if e != nil {
-		return nil, e
-	}
-	// Verify quote using sealing challenge-response
-	return s.sealingChallengeResponse.Verify(record, req.Quote, req.EventLog)
-}
-
-func (s *KeyServer) handleTdxSealInit(w http.ResponseWriter, r *http.Request) {
-	req, err := decodeRequest[api.TdxSealRequest](r)
-	if err != nil {
-		slog.Error("failed to decode TDX seal request", "error", err)
-		respondError(w, http.StatusBadRequest, "Invalid request")
-		return
-	}
-
-	response, e := s.tdxSealRequestInit(req)
-	if e != nil {
-		respondError(w, e.Code, e.Message)
-		return
-	}
-	respondJSON(w, http.StatusOK, response)
-}
-
-func (s *KeyServer) handleTdxSealFinalize(w http.ResponseWriter, r *http.Request) {
-	response, e := s.tdxSealRequestVerify(r)
-	if e != nil {
-		keyResponseError(w, e.Code, e.Message)
-		return
-	}
-
-	sealRequest := api.TdxSealRequest{}
-	if err := json.Unmarshal([]byte(response.Payload), &sealRequest); err != nil {
-		keyResponseError(w, http.StatusInternalServerError, "Failed to unmarshal seal request from store")
-		return
-	}
-
-	slog.Info("TDX seal request finalized")
-
-	sealResponse, err := s.keyService.TDXSeal(sealRequest)
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "Failed to seal payload")
-		return
-	}
-
-	respondJSON(w, http.StatusOK, sealResponse)
 }
