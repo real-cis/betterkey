@@ -1,7 +1,5 @@
 package api
 
-import "github.com/google/go-tdx-guest/proto/tdx"
-
 type VerifyResponse struct {
 	Nonce     string `json:"nonce"`
 	SessionId string `json:"sessionId"`
@@ -11,12 +9,6 @@ type AttestationRequest struct {
 	SessionId string `json:"sessionId"`
 	Quote     string `json:"quote"`
 	EventLog  string `json:"eventLog,omitempty"`
-}
-
-type AttestationResponse struct {
-	Status  string       `json:"status"`
-	Quote   *tdx.QuoteV4 `json:"quote"`
-	KeySeed []byte       `json:"keySeed,omitempty"`
 }
 
 type AttestationRequestStore struct {
@@ -72,12 +64,12 @@ type SigningResponse struct {
 
 type TdxSealRequest struct {
 	Id      string `json:"id"`
-	Mrtd    string `json:"mrtd"`
-	Cfv     string `json:"cfv"`
-	Payload string `json:"payload"`
+	Mrtd    string `json:"mrtd"`    // measurement of TD, base64
+	Cfv     string `json:"cfv"`     // measurement of configuration firmware volume, base64
+	Payload string `json:"payload"` // payload to seal, base64
 }
 
 type TdxSealResponse struct {
 	Id            string `json:"id"`
-	SealedPayload string `json:"sealedPayload"` // base64 - Nonce (12 bytes) || Ciphertext
+	SealedPayload string `json:"sealedPayload"` // base64 - 12 bytes nonce || Ciphertext
 }
