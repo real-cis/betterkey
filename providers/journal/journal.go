@@ -1,7 +1,10 @@
 // Backend-agnostic abstraction for persisting journal records
 package journal
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
 type Category string
 
@@ -21,24 +24,32 @@ const (
 type Entry struct {
 	Category    Category `json:"category"`
 	JournalType Type     `json:"journalType"`
-	Payload     string   `json:"payload"`
+	Description string   `json:"description"`
 	ResourceId  string   `json:"resourceId"`
 	Timestamp   int64    `json:"timeStamp"` // Unix epoch milliseconds
 	Status      Status   `json:"status"`
+	Meta        *Meta    `json:"meta,omitempty"`
+}
+
+// Optional structured artifacts embedded alongside a journal entry.
+type Meta struct {
+	QuoteSummary    json.RawMessage `json:"quote,omitempty"`    // parsed quote header/body
+	EventLogSummary json.RawMessage `json:"eventlog,omitempty"` // event log summary
 }
 
 // Single journal event together with the artifacts to persist.
 type Record struct {
-	Category   Category
-	Type       Type
-	ResourceId string
-	SessionId  string
-	Payload    string
-	Status     Status
+	Category    Category
+	Type        Type
+	ResourceId  string
+	SessionId   string
+	Description string
+	Status      Status
 
 	// TDX quote in base64
-	Quote    string
-	EventLog string
+	Quote           string
+	QuoteSummary    json.RawMessage
+	EventLogSummary json.RawMessage
 }
 
 // Backend-agnostic journal configuration, mapped from internal/common

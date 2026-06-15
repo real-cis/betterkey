@@ -120,28 +120,32 @@ func (s *KeyServer) handleKeyRequestFinalize(w http.ResponseWriter, r *http.Requ
 
 	// Derive the key seed from the verified TDX measurements
 	keySeed := DeriveSeedFromMeasurements(quote.GetMrTd(), cfv)
+	quoteSummary := json.RawMessage(quote.Summary().JSON())
+	eventlogSummary := json.RawMessage(eventLog.Summary().JSON())
 	keyResponse, e := s.keyRequestFinalize(keyRequest.Id, keyRequest.Type, keyRequest.Ctx, keySeed)
 	if e != nil {
 		s.journalKeyRequest(keyRequest.Id, attestationRequest.SessionId, "Key request failed: "+e.Message,
-			attestationRequest.Quote, eventLog.Summary().JSON(), journal.StatusFailure)
+			attestationRequest.Quote, quoteSummary, eventlogSummary, journal.StatusFailure)
 		respondError(w, e.Code, e.Message)
 		return
 	}
 	s.journalKeyRequest(keyRequest.Id, attestationRequest.SessionId, "Key request succeeded",
-		attestationRequest.Quote, eventLog.Summary().JSON(), journal.StatusSuccess)
+		attestationRequest.Quote, quoteSummary, eventlogSummary, journal.StatusSuccess)
 	respondJSON(w, http.StatusOK, keyResponse)
 }
 
 // asynchronously records a key-request outcome to the journal.; non-blocking/best effort
-func (s *KeyServer) journalKeyRequest(resourceId, sessionId, payload, quote, eventLog string, status journal.Status) {
+func (s *KeyServer) journalKeyRequest(resourceId, sessionId, description, quote string,
+	quoteSummary, eventLogSummary json.RawMessage, status journal.Status) {
 	s.logJournal(journal.Record{
-		Category:   journal.CategoryKDS,
-		Type:       journal.TypeKeyRequest,
-		ResourceId: resourceId,
-		SessionId:  sessionId,
-		Payload:    payload,
-		Quote:      quote,
-		EventLog:   eventLog,
-		Status:     status,
+		Category:        journal.CategoryKDS,
+		Type:            journal.TypeKeyRequest,
+		ResourceId:      resourceId,
+		SessionId:       sessionId,
+		Description:     description,
+		Quote:           quote,
+		QuoteSummary:    quoteSummary,
+		EventLogSummary: eventLogSummary,
+		Status:          status,
 	})
 }

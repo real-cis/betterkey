@@ -88,9 +88,9 @@ func (s *KeyServer) journalSealRequest(resourceId, sessionId, payload string, st
 	s.logJournal(journal.Record{
 		Category:   journal.CategoryKDS,
 		Type:       journal.TypeTDXSeal,
-		ResourceId: resourceId,
-		SessionId:  sessionId,
-		Payload:    payload,
-		Status:     status,
+		ResourceId:  resourceId,
+		SessionId:   sessionId,
+		Description: payload,
+		Status:      status,
 	})
 }
