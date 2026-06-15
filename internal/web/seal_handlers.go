@@ -10,7 +10,7 @@ import (
 )
 
 func (s *KeyServer) tdxSealRequestInit(req api.TdxSealRequest) (*api.VerifyResponse, *ErrorWithCode) {
-	slog.Info("TDX seal request init", "request", req)
+	slog.Info("TDX seal request init", "id", req.Id, "mrtd", req.Mrtd, "cfv", req.Cfv)
 	// Validate fields
 	if req.Mrtd == "" || req.Cfv == "" || req.Payload == "" {
 		return nil, &ErrorWithCode{Code: http.StatusBadRequest, Message: "Missing required parameters"}
