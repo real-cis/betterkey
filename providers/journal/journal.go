@@ -28,11 +28,11 @@ type Entry struct {
 	ResourceId  string   `json:"resourceId"`
 	Timestamp   int64    `json:"timeStamp"` // Unix epoch milliseconds
 	Status      Status   `json:"status"`
-	Meta        *Meta    `json:"meta,omitempty"`
+	Meta        Meta     `json:"meta"`
 }
 
 // Optional structured artifacts embedded alongside a journal entry. Binary
-// fields are serialized as base64; the client renders them as hex.
+// fields are serialized as base64
 type Meta struct {
 	QuoteSummary    json.RawMessage `json:"quote,omitempty"`    // parsed quote header/body
 	EventLogSummary json.RawMessage `json:"eventlog,omitempty"` // event log summary

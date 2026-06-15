@@ -40,16 +40,6 @@ func (j *s3Journal) Write(ctx context.Context, rec Record) error {
 		return err
 	}
 
-	if len(rec.QuoteSummary) == 0 && len(rec.EventLogSummary) == 0 {
-		return nil
-	}
-
-	meta := &Meta{
-		QuoteSummary:    rec.QuoteSummary,
-		EventLogSummary: rec.EventLogSummary,
-		Mrtd:            rec.Mrtd,
-		Cfv:             rec.Cfv,
-	}
 	entry := Entry{
 		Category:    rec.Category,
 		JournalType: rec.Type,
@@ -57,7 +47,12 @@ func (j *s3Journal) Write(ctx context.Context, rec Record) error {
 		ResourceId:  rec.ResourceId,
 		Timestamp:   time.Now().UnixMilli(),
 		Status:      rec.Status,
-		Meta:        meta,
+		Meta: Meta{
+			QuoteSummary:    rec.QuoteSummary,
+			EventLogSummary: rec.EventLogSummary,
+			Mrtd:            rec.Mrtd,
+			Cfv:             rec.Cfv,
+		},
 	}
 	jsonEntry, err := json.MarshalIndent(entry, "", "  ")
 	if err != nil {
