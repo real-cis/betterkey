@@ -2,6 +2,7 @@ package tdx
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 
@@ -108,6 +109,80 @@ func (q *TdxQuote) GetRTMR(index int) ([]byte, error) {
 		return nil, fmt.Errorf("invalid RTMR index: %d", index)
 	}
 	return q.parsed.TdQuoteBody.Rtmrs[index], nil
+}
+
+// quote header for exporting
+type QuoteHeader struct {
+	Version            uint32 `json:"version"`
+	AttestationKeyType uint32 `json:"attestationKeyType"`
+	TeeType            uint32 `json:"teeType"`
+	QeSvn              []byte `json:"qeSvn"`
+	PceSvn             []byte `json:"pceSvn"`
+	QeVendorId         []byte `json:"qeVendorId"`
+	UserData           []byte `json:"userData"`
+}
+
+// quote body for exporting
+type QuoteBody struct {
+	TeeTcbSvn      []byte   `json:"teeTcbSvn"`
+	MrSeam         []byte   `json:"mrSeam"`
+	MrSignerSeam   []byte   `json:"mrSignerSeam"`
+	SeamAttributes []byte   `json:"seamAttributes"`
+	TdAttributes   []byte   `json:"tdAttributes"`
+	Xfam           []byte   `json:"xfam"`
+	MrTd           []byte   `json:"mrTd"`
+	MrConfigId     []byte   `json:"mrConfigId"`
+	MrOwner        []byte   `json:"mrOwner"`
+	MrOwnerConfig  []byte   `json:"mrOwnerConfig"`
+	Rtmrs          [][]byte `json:"rtmrs"`
+	ReportData     []byte   `json:"reportData"`
+}
+
+// JSON-serializable view of a parsed TDX quote.
+type QuoteSummary struct {
+	Header QuoteHeader `json:"header"`
+	Body   QuoteBody   `json:"body"`
+}
+
+// returns a JSON-serializable summary of the quote's header and body.
+func (q *TdxQuote) Summary() *QuoteSummary {
+	h := q.parsed.GetHeader()
+	b := q.parsed.GetTdQuoteBody()
+
+	return &QuoteSummary{
+		Header: QuoteHeader{
+			Version:            h.GetVersion(),
+			AttestationKeyType: h.GetAttestationKeyType(),
+			TeeType:            h.GetTeeType(),
+			QeSvn:              h.GetQeSvn(),
+			PceSvn:             h.GetPceSvn(),
+			QeVendorId:         h.GetQeVendorId(),
+			UserData:           h.GetUserData(),
+		},
+		Body: QuoteBody{
+			TeeTcbSvn:      b.GetTeeTcbSvn(),
+			MrSeam:         b.GetMrSeam(),
+			MrSignerSeam:   b.GetMrSignerSeam(),
+			SeamAttributes: b.GetSeamAttributes(),
+			TdAttributes:   b.GetTdAttributes(),
+			Xfam:           b.GetXfam(),
+			MrTd:           b.GetMrTd(),
+			MrConfigId:     b.GetMrConfigId(),
+			MrOwner:        b.GetMrOwner(),
+			MrOwnerConfig:  b.GetMrOwnerConfig(),
+			Rtmrs:          b.GetRtmrs(),
+			ReportData:     b.GetReportData(),
+		},
+	}
+}
+
+// returns the summary as JSON; best effort, empty on error.
+func (s *QuoteSummary) JSON() string {
+	b, err := json.Marshal(s)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 // VerifyChain performs a complete verification chain
