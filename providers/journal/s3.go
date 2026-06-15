@@ -47,6 +47,8 @@ func (j *s3Journal) Write(ctx context.Context, rec Record) error {
 	meta := &Meta{
 		QuoteSummary:    rec.QuoteSummary,
 		EventLogSummary: rec.EventLogSummary,
+		Mrtd:            rec.Mrtd,
+		Cfv:             rec.Cfv,
 	}
 	entry := Entry{
 		Category:    rec.Category,

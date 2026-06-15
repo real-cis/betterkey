@@ -74,23 +74,25 @@ func (s *KeyServer) handleTdxSealFinalize(w http.ResponseWriter, r *http.Request
 
 	sealResponse, err := s.keyService.TDXSeal(sealRequest)
 	if err != nil {
-		s.journalSealRequest(sealRequest.Id, req.SessionId, "Seal request failed: "+err.Error(), journal.StatusFailure)
+		s.journalSealRequest(sealRequest, req.SessionId, "Seal request failed: "+err.Error(), journal.StatusFailure)
 		respondError(w, http.StatusInternalServerError, "Failed to seal payload")
 		return
 	}
-	s.journalSealRequest(sealRequest.Id, req.SessionId, "Seal request succeeded", journal.StatusSuccess)
+	s.journalSealRequest(sealRequest, req.SessionId, "Seal request succeeded", journal.StatusSuccess)
 	respondJSON(w, http.StatusOK, sealResponse)
 }
 
 // asynchronously records a seal-request outcome to the journal; non-blocking/best effort.
-// The quote and event log belong to the authenticating client, not the VM, so they are not journaled.
-func (s *KeyServer) journalSealRequest(resourceId, sessionId, payload string, status journal.Status) {
+func (s *KeyServer) journalSealRequest(req api.TdxSealRequest, sessionId, description string,
+	status journal.Status) {
 	s.logJournal(journal.Record{
-		Category:   journal.CategoryKDS,
-		Type:       journal.TypeTDXSeal,
-		ResourceId:  resourceId,
+		Category:    journal.CategoryKDS,
+		Type:        journal.TypeTDXSeal,
+		ResourceId:  req.Id,
 		SessionId:   sessionId,
-		Description: payload,
+		Description: description,
+		Mrtd:        req.Mrtd,
+		Cfv:         req.Cfv,
 		Status:      status,
 	})
 }

@@ -31,10 +31,13 @@ type Entry struct {
 	Meta        *Meta    `json:"meta,omitempty"`
 }
 
-// Optional structured artifacts embedded alongside a journal entry.
+// Optional structured artifacts embedded alongside a journal entry. Binary
+// fields are serialized as base64; the client renders them as hex.
 type Meta struct {
 	QuoteSummary    json.RawMessage `json:"quote,omitempty"`    // parsed quote header/body
 	EventLogSummary json.RawMessage `json:"eventlog,omitempty"` // event log summary
+	Mrtd            string          `json:"mrtd,omitempty"`     // measurement of the TD, base64
+	Cfv             string          `json:"cfv,omitempty"`      // configuration firmware volume digest, base64
 }
 
 // Single journal event together with the artifacts to persist.
@@ -50,6 +53,8 @@ type Record struct {
 	Quote           string
 	QuoteSummary    json.RawMessage
 	EventLogSummary json.RawMessage
+	Mrtd            string
+	Cfv             string
 }
 
 // Backend-agnostic journal configuration, mapped from internal/common
