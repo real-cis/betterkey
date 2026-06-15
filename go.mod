@@ -18,7 +18,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.36.0
 	github.com/valkey-io/valkey-go v1.0.64
-	gitlab.com/real-cis/cc/go-trust v0.0.0-20260612152313-8e83312e9a3e
+	gitlab.com/real-cis/cc/go-trust v0.0.0-20260615082422-7b92bd7606d2
 	gitlab.com/real-cis/libs/scaleway-s3-client v0.0.0-20260610130710-f5620e1eb56b
 	golang.org/x/crypto v0.36.0
 )

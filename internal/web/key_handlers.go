@@ -123,35 +123,27 @@ func (s *KeyServer) handleKeyRequestFinalize(w http.ResponseWriter, r *http.Requ
 	keyResponse, e := s.keyRequestFinalize(keyRequest.Id, keyRequest.Type, keyRequest.Ctx, keySeed)
 	if e != nil {
 		s.journalKeyRequest(keyRequest.Id, attestationRequest.SessionId, "Key request failed: "+e.Message,
-			attestationRequest.Quote, marshalEventLogSummary(eventLog), journal.StatusFailure)
+			attestationRequest.Quote, quote.Summary().JSON(), eventLog.Summary().JSON(), journal.StatusFailure)
 		respondError(w, e.Code, e.Message)
 		return
 	}
 	s.journalKeyRequest(keyRequest.Id, attestationRequest.SessionId, "Key request succeeded",
-		attestationRequest.Quote, marshalEventLogSummary(eventLog), journal.StatusSuccess)
+		attestationRequest.Quote, quote.Summary().JSON(), eventLog.Summary().JSON(), journal.StatusSuccess)
 	respondJSON(w, http.StatusOK, keyResponse)
 }
 
-// marshalEventLogSummary returns the event log summary as JSON; best effort, empty on error.
-func marshalEventLogSummary(eventLog *tdx.EventLog) string {
-	summary, err := json.Marshal(eventLog.Summary())
-	if err != nil {
-		slog.Warn("failed to marshal event log summary", "error", err)
-		return ""
-	}
-	return string(summary)
-}
-
 // asynchronously records a key-request outcome to the journal.; non-blocking/best effort
-func (s *KeyServer) journalKeyRequest(resourceId, sessionId, payload, quote, eventLog string, status journal.Status) {
+func (s *KeyServer) journalKeyRequest(resourceId, sessionId, description, quote string,
+	quoteSummary string, eventLogSummary string, status journal.Status) {
 	s.logJournal(journal.Record{
-		Category:   journal.CategoryKDS,
-		Type:       journal.TypeKeyRequest,
-		ResourceId: resourceId,
-		SessionId:  sessionId,
-		Payload:    payload,
-		Quote:      quote,
-		EventLog:   eventLog,
-		Status:     status,
+		Category:        journal.CategoryKDS,
+		Type:            journal.TypeKeyRequest,
+		ResourceId:      resourceId,
+		SessionId:       sessionId,
+		Description:     description,
+		Quote:           quote,
+		QuoteSummary:    json.RawMessage(quoteSummary),
+		EventLogSummary: json.RawMessage(eventLogSummary),
+		Status:          status,
 	})
 }

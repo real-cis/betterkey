@@ -40,13 +40,24 @@ func (j *s3Journal) Write(ctx context.Context, rec Record) error {
 		return err
 	}
 
+	if len(rec.QuoteSummary) == 0 && len(rec.EventLogSummary) == 0 {
+		return nil
+	}
+
+	meta := &Meta{
+		QuoteSummary:    rec.QuoteSummary,
+		EventLogSummary: rec.EventLogSummary,
+		Mrtd:            rec.Mrtd,
+		Cfv:             rec.Cfv,
+	}
 	entry := Entry{
 		Category:    rec.Category,
 		JournalType: rec.Type,
-		Payload:     rec.Payload,
+		Description: rec.Description,
 		ResourceId:  rec.ResourceId,
 		Timestamp:   time.Now().UnixMilli(),
 		Status:      rec.Status,
+		Meta:        meta,
 	}
 	jsonEntry, err := json.MarshalIndent(entry, "", "  ")
 	if err != nil {
@@ -65,12 +76,6 @@ func (j *s3Journal) Write(ctx context.Context, rec Record) error {
 			name string
 			data []byte
 		}{"quote.b64", []byte(rec.Quote)})
-	}
-	if rec.EventLog != "" {
-		artifacts = append(artifacts, struct {
-			name string
-			data []byte
-		}{"eventlog.json", []byte(rec.EventLog)})
 	}
 
 	for _, a := range artifacts {
