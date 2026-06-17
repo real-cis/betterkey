@@ -71,6 +71,10 @@ func (s *KeyServer) handleKeyRequestInit(w http.ResponseWriter, r *http.Request)
 	respondJSON(w, http.StatusOK, response)
 }
 
+// Finalizes the key request in 3 steps
+// 1. Challenge response verification of the TDX quote
+// 2. Event log verification and CFV measurement extraction
+// 3. Key derivation using the verified TDX measurements
 func (s *KeyServer) handleKeyRequestFinalize(w http.ResponseWriter, r *http.Request) {
 	attestationRequest, err := decodeRequest[api.AttestationRequest](r)
 	if err != nil {
@@ -107,6 +111,7 @@ func (s *KeyServer) handleKeyRequestFinalize(w http.ResponseWriter, r *http.Requ
 		keyResponseError(w, http.StatusUnauthorized, err.Error())
 		return
 	}
+
 	cfv, err := eventLog.Verify(quote)
 	if err != nil {
 		keyResponseError(w, http.StatusUnauthorized, err.Error())

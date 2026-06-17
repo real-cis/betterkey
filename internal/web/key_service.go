@@ -187,7 +187,7 @@ func DeriveSeedFromMeasurements(mrtd, cfv []byte) []byte {
 }
 
 func (v *VaultKeyService) TDXSeal(req api.TdxSealRequest) (*api.TdxSealResponse, error) {
-	// Decode all eventlog parameters from base64
+	// Decode all parameters from base64
 	mrtd, err := base64.StdEncoding.DecodeString(req.Mrtd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode mrtd: %w", err)
