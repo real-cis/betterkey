@@ -116,6 +116,10 @@
             "fromHost": true
         },
         {
+            "name": "TDX_ENFORCE_QUOTE_VERIFY",
+            "fromHost": true
+        },
+        {
             "name": "JOURNAL_S3_ENDPOINT",
             "fromHost": true
         },

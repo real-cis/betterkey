@@ -12,16 +12,11 @@ import (
 )
 
 type TdxQuote struct {
-	raw     []byte
-	parsed  *tdx.QuoteV4
-	devMode bool
+	raw    []byte
+	parsed *tdx.QuoteV4
 }
 
 func NewTdxQuote(rawQuote []byte) (*TdxQuote, error) {
-	return NewTdxQuoteWithMode(rawQuote, false)
-}
-
-func NewTdxQuoteWithMode(rawQuote []byte, devMode bool) (*TdxQuote, error) {
 	if len(rawQuote) == 0 {
 		return nil, fmt.Errorf("empty quote provided")
 	}
@@ -37,9 +32,8 @@ func NewTdxQuoteWithMode(rawQuote []byte, devMode bool) (*TdxQuote, error) {
 	}
 
 	return &TdxQuote{
-		raw:     rawQuote,
-		parsed:  parsed,
-		devMode: devMode,
+		raw:    rawQuote,
+		parsed: parsed,
 	}, nil
 }
 
@@ -59,11 +53,6 @@ func (q *TdxQuote) Verify() error {
 }
 
 func (q *TdxQuote) VerifyReportData(expectedReportData []byte) error {
-	if q.devMode {
-		slog.Info("Dev mode: skip matching report data")
-		return nil
-	}
-
 	if !bytes.Equal(q.parsed.TdQuoteBody.ReportData, expectedReportData) {
 		return fmt.Errorf("report data does not match: expected %x, got %x",
 			expectedReportData, q.parsed.TdQuoteBody.ReportData)

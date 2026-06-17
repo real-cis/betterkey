@@ -18,14 +18,16 @@ type ChallengeResponse interface {
 }
 
 type AttestationVerificationProtocol struct {
-	sessions *SessionStore
-	devMode  bool
+	sessions           *SessionStore
+	devMode            bool
+	enforceQuoteVerify bool
 }
 
-func NewAttestationProtocol(sessions *SessionStore, dev bool) ChallengeResponse {
+func NewAttestationProtocol(sessions *SessionStore, dev bool, enforceQuoteVerify bool) ChallengeResponse {
 	return &AttestationVerificationProtocol{
-		sessions: sessions,
-		devMode:  dev,
+		sessions:           sessions,
+		devMode:            dev,
+		enforceQuoteVerify: enforceQuoteVerify,
 	}
 }
 
@@ -48,18 +50,20 @@ func (a *AttestationVerificationProtocol) Verify(requestStore *api.AttestationRe
 		return nil, NewError("Invalid quote", http.StatusBadRequest)
 	}
 
-	quote, err := tdx.NewTdxQuoteWithMode(quoteBytes, a.devMode)
+	quote, err := tdx.NewTdxQuote(quoteBytes)
 	if err != nil {
 		return nil, NewError("Failed to parse quote: "+err.Error(), http.StatusBadRequest)
 	}
 
 	if err := quote.Verify(); err != nil {
-		// TODO handle verification failures due to out of date TCBs
-		// return nil, NewError("Quote verification failed", http.StatusUnauthorized)
-		slog.Error("Quote verification failed", "error", err)
+		// log errors
+		slog.Error("Quote verification failed", "error", err, "enforced", a.enforceQuoteVerify)
+		if a.enforceQuoteVerify {
+			return nil, NewError("Quote verification failed", http.StatusUnauthorized)
+		}
 	}
 
-	if err := quote.VerifyReportData(requestStore.Nonce); err != nil {
+	if err := quote.VerifyReportData(requestStore.Nonce); err != nil && !a.devMode {
 		return nil, NewError("verification of nonce failed", http.StatusUnauthorized)
 	}
 

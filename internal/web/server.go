@@ -64,9 +64,9 @@ func NewKeyServer(config *common.ClusterConfig, kvStore common.KeyStore,
 
 	keyStore := NewSessionKeyStore(kvStore, config.DevMode)
 	sessions := NewSessionStore(keyStore)
-	// VMs always fully attest themselves, devMode=false
-	challengeResponse := NewAttestationProtocol(sessions, false)
-	sealingChallengeResponse := NewAttestationProtocol(sessions, config.DevMode)
+	// VMs always fully attest themselves, devMode=false, quote verification enforced
+	challengeResponse := NewAttestationProtocol(sessions, false, true)
+	sealingChallengeResponse := NewAttestationProtocol(sessions, config.DevMode, config.EnforceQuoteVerify)
 	keyGenService := NewKeyGenService(vault, keyStore, config.DevMode)
 	journalService := journal.NewJournal(journal.Config{
 		Endpoint:  config.JournalEndpoint,
