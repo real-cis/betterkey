@@ -1,3 +1,6 @@
+<!-- Copyright 2025-2026 real-cis GmbH -->
+<!-- SPDX-License-Identifier: MIT -->
+
 # Betterkey - Trusted Key Derivation and Attestation Verification Service
 
 Betterkey provides a secure, distributed infrastructure for cryptographic key derivation and management. The system uses hardware-backed attestation (Intel® SGX) to establish trust between cluster nodes and securely distribute a cluster-wide master key, which serves as the root secret for all subsequent key derivation for Confidential VMs.

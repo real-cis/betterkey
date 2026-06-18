@@ -1,3 +1,6 @@
+<!-- Copyright 2025-2026 real-cis GmbH -->
+<!-- SPDX-License-Identifier: MIT -->
+
 # TDX Seal API
 
 TDX Seal API accepts TDX measurements and boot configuration parameters to derive a symmetric encryption key, which is then used to seal (encrypt) a supplied payload using AES-256-GCM.

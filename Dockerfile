@@ -1,3 +1,6 @@
+# Copyright 2025-2026 real-cis GmbH
+# SPDX-License-Identifier: MIT
+
 # Build
 FROM ghcr.io/edgelesssys/ego-dev:v1.9.0
 
