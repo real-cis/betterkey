@@ -1,3 +1,6 @@
+<!-- Copyright 2025-2026 real-cis GmbH -->
+<!-- SPDX-License-Identifier: MIT -->
+
 ## Architecture
 
 Betterkey operates as a mesh of nodes that:

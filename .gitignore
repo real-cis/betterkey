@@ -1,0 +1,12 @@
+# Copyright 2025-2026 real-cis GmbH
+# SPDX-License-Identifier: MIT
+
+.DS_Store
+dist
+dist-ssr
+coverage
+*.local
+
+.vscode/*
+!.vscode/extensions.json
+.idea
