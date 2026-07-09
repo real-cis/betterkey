@@ -372,6 +372,7 @@ func NewNode(clusterConfig *common.ClusterConfig, enclaveConfig *common.EnclaveC
 	node.memberlistConfig = config
 
 	slog.Info("new node", "id", node.id, "port", clusterConfig.Port, "advertiseAddress",
-		config.AdvertiseAddr, "seedNodes", clusterConfig.SeedNodes, "seedPeers", node.state.seed.otherSeedNodes)
+		config.AdvertiseAddr, "bindAddress", config.BindAddr, "bindPort", config.BindPort, "seedNodes", clusterConfig.SeedNodes, "seedPeers", node.state.seed.otherSeedNodes)
+	slog.Info("memberlist intervals", "probeInterval", config.ProbeInterval, "probeTimeout", config.ProbeTimeout, "gossipInterval", config.GossipInterval, "pushPullInterval", config.PushPullInterval)
 	return node
 }
