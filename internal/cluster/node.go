@@ -38,6 +38,10 @@ type Node struct {
 	stateListener           StateListener
 	heartbeatManager        *HeartBeatManager
 	nodeTls                 common.NodeTLSConfig
+	attestor                sgx.Attestor
+	// pendingKx holds the ephemeral state of an outstanding key query; guarded
+	// by lock.
+	pendingKx *pendingKeyExchange
 }
 
 func (c *Node) ConfiguredPeerAddresses() []string {
@@ -332,6 +336,7 @@ func NewNode(clusterConfig *common.ClusterConfig, enclaveConfig *common.EnclaveC
 		stateListener:           stateListener,
 		heartbeatManager:        NewHeartBeatManager(prov, 15*time.Minute, 2*time.Minute, stateListener, nodeState),
 		nodeTls:                 nodeTls,
+		attestor:                sgx.NewAttestor(enclaveConfig),
 	}
 
 	config := memberlist.DefaultWANConfig()

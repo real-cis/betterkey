@@ -55,7 +55,36 @@ When a Betterkey cluster starts for the very first time, the configured seed nod
 
 #### Joining an existing cluster
 
-When a new node wants to join a cluster that already has a master key, it does not participate in seeding. Instead, it enters the `QUERY_KEY` state and looks for any peer already in the `READY` state. The joining node sends a key request to such a peer over the attested TLS channel. The READY peer responds by sending the existing master key, again over this secure channel. After receiving the key, the new node immediately seals it to its local disk using its own enclave, then validates that the operation succeeded and moves itself into the `READY` state.
+When a new node wants to join a cluster that already has a master key, it does not participate in seeding. Instead, it enters the `QUERY_KEY` state and looks for any peer already in the `READY` state. The joining node then runs an **attested ephemeral key exchange** with that peer (see [Attested key exchange](#attested-key-exchange) below): the master key is wrapped to a fresh key pair that the joining enclave proved it holds, so it never travels in plaintext. After unwrapping the key, the new node immediately seals it to its local disk using its own enclave, then validates that the operation succeeded and moves itself into the `READY` state.
+
+#### Attested key exchange
+
+Master-key transfer does not rely on the attested TLS channel alone for confidentiality. Both sides contribute an ephemeral X25519 key generated **inside** their enclave and embed a hash of it in the report data of a fresh quote; the responder encrypts the master key to the resulting ECDH shared secret.
+
+```
+Requester                                    Responder
+  eph_r, n_r
+  q_r = quote(SHA512("bk-kx-req-v1"|eph_r|n_r))
+       --- KEYQUERY{eph_r, n_r, q_r} --->
+                                      verify q_r is bound to eph_r, n_r
+                                      eph_s, n_s; ss = ECDH(eph_s, eph_r)
+                                      tr = SHA256(eph_r|eph_s|n_r|n_s)
+                                      q_s = quote(SHA512("bk-kx-resp-v1"|tr))
+                                      wk = HKDF(ss, salt=tr, info)
+       <-- KEYQUERY_RESP{eph_s, n_s, q_s, AESGCM(wk, mk)} ---
+  verify q_s is bound to tr; unwrap
+```
+
+Properties:
+
+* The wrapping key exists only inside the two enclaves that proved possession of the ephemeral keys, so an attacker who relays or intercepts the RA-TLS session obtains ciphertext only.
+* Quotes are fresh per exchange, which also proves current liveness and TCB status rather than reusing the long-lived certificate quote.
+* The transfer has forward secrecy: the ephemeral keys are discarded afterwards.
+* The two direction labels are distinct, so a quote minted for one direction cannot be reflected back as the other; the response binding covers the full transcript, so a quote is valid for exactly one exchange.
+
+Nodes built without an enclave configuration (non-SGX development builds) run the same exchange without quotes.
+
+> **Note:** initial seeding between seed nodes (`MSG_TYPE_KEYINIT`) still distributes the master key over the attested TLS channel without this wrapping.
 
 #### Node restart
 
