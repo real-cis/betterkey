@@ -4,10 +4,12 @@
 package cluster
 
 import (
+	"bytes"
 	"crypto/ecdh"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/sha512"
+	"errors"
 	"fmt"
 
 	"gitlab.com/real-cis/cc/betterkey/internal/crypto"
@@ -43,6 +45,14 @@ const (
 	kxRequestLabel  = "bk-kx-req-v1"
 	kxResponseLabel = "bk-kx-resp-v1"
 	kxWrapInfo      = "betterkey/mk-wrap/v1"
+
+	// Seeding uses the same primitives with its own labels. Seeding is a push:
+	// a sender must wrap before hearing anything from the recipient, so each
+	// node first publishes one attested ephemeral key (its "offer") that every
+	// other seed node wraps to. One quote per node per round rather than one
+	// per pair.
+	kxSeedOfferLabel = "bk-seed-offer-v1"
+	kxSeedWrapInfo   = "betterkey/seed-wrap/v1"
 
 	kxNonceLen = 32
 	// X25519 public keys are always 32 bytes; fixed lengths keep the hashed
@@ -184,6 +194,153 @@ func wrapMasterKey(attestor sgx.Attestor, req *keyExchangeRequest, secret []byte
 		Quote:        quote,
 		WrappedKey:   wrapped,
 	}, nil
+}
+
+// seedOffer is the payload of MSG_TYPE_SEED_OFFER: a node's attested ephemeral
+// public key for one seeding round.
+type seedOffer struct {
+	EphemeralPub []byte `json:"ephemeralPub"`
+	Nonce        []byte `json:"nonce"`
+	Quote        []byte `json:"quote,omitempty"`
+}
+
+// seedKeyInit is the payload of MSG_TYPE_KEYINIT. The sender's own offer is
+// carried inline so the message is self-contained: a recipient that never saw
+// the sender's broadcast offer can still verify and unwrap it.
+type seedKeyInit struct {
+	EphemeralPub []byte `json:"ephemeralPub"`
+	Nonce        []byte `json:"nonce"`
+	Quote        []byte `json:"quote,omitempty"`
+	// RecipientPub identifies which offer the key was wrapped to.
+	RecipientPub []byte `json:"recipientPub"`
+	WrappedKey   string `json:"wrappedKey"`
+}
+
+// seedOfferBinding includes the cluster id so an offer cannot be replayed into
+// a different cluster. The trailing fields are fixed length, so the
+// concatenation stays unambiguous despite the variable-length id.
+func seedOfferBinding(clusterId string, ephPub, nonce []byte) []byte {
+	h := sha512.New()
+	h.Write([]byte(kxSeedOfferLabel))
+	h.Write([]byte(clusterId))
+	h.Write(ephPub)
+	h.Write(nonce)
+	return h.Sum(nil)
+}
+
+// seedTranscript is order independent: both peers of a pair derive the same
+// value regardless of which of them is sending.
+func seedTranscript(pubA, nonceA, pubB, nonceB []byte) []byte {
+	loPub, loNonce, hiPub, hiNonce := pubA, nonceA, pubB, nonceB
+	if bytes.Compare(pubA, pubB) > 0 {
+		loPub, loNonce, hiPub, hiNonce = pubB, nonceB, pubA, nonceA
+	}
+	h := sha256.New()
+	h.Write(loPub)
+	h.Write(hiPub)
+	h.Write(loNonce)
+	h.Write(hiNonce)
+	return h.Sum(nil)
+}
+
+// seedWrappingKey derives a direction-separated key. Including the sender's
+// ephemeral public key in the info means wk(S->R) != wk(R->S), so a wrapped key
+// cannot be reflected back at its sender.
+func seedWrappingKey(shared, transcript, senderPub []byte) ([]byte, error) {
+	info := append([]byte(kxSeedWrapInfo), senderPub...)
+	return crypto.HKDF(shared, transcript, info, masterKeyLen)
+}
+
+// newSeedOffer generates and quotes this node's ephemeral key for a seeding
+// round. The returned pendingKeyExchange must be retained for the whole round.
+func newSeedOffer(attestor sgx.Attestor, clusterId string) (*seedOffer, *pendingKeyExchange, error) {
+	priv, nonce, err := newKxEphemeral()
+	if err != nil {
+		return nil, nil, err
+	}
+	pub := priv.PublicKey().Bytes()
+	quote, err := attestor.Quote(seedOfferBinding(clusterId, pub, nonce))
+	if err != nil {
+		return nil, nil, fmt.Errorf("quoting seed offer failed: %w", err)
+	}
+	return &seedOffer{EphemeralPub: pub, Nonce: nonce, Quote: quote},
+		&pendingKeyExchange{priv: priv, nonce: nonce}, nil
+}
+
+func verifySeedOffer(attestor sgx.Attestor, clusterId string, offer *seedOffer) error {
+	if err := validateKxPeerMaterial(offer.EphemeralPub, offer.Nonce); err != nil {
+		return err
+	}
+	if err := attestor.VerifyQuote(offer.Quote,
+		seedOfferBinding(clusterId, offer.EphemeralPub, offer.Nonce)); err != nil {
+		return fmt.Errorf("seed offer attestation rejected: %w", err)
+	}
+	return nil
+}
+
+// wrapSeedKey encrypts secret to a peer's already-verified offer. Only the
+// enclave that proved possession of that offer's private half can open it.
+func wrapSeedKey(selfKx *pendingKeyExchange, selfOffer, peer *seedOffer, secret []byte) (*seedKeyInit, error) {
+	if len(secret) != masterKeyLen {
+		return nil, fmt.Errorf("bad master key length %d, want %d", len(secret), masterKeyLen)
+	}
+	peerPub, err := ecdh.X25519().NewPublicKey(peer.EphemeralPub)
+	if err != nil {
+		return nil, fmt.Errorf("bad ephemeral public key: %w", err)
+	}
+	shared, err := selfKx.priv.ECDH(peerPub)
+	if err != nil {
+		return nil, fmt.Errorf("ecdh failed: %w", err)
+	}
+	transcript := seedTranscript(selfOffer.EphemeralPub, selfOffer.Nonce, peer.EphemeralPub, peer.Nonce)
+	wrappingKey, err := seedWrappingKey(shared, transcript, selfOffer.EphemeralPub)
+	if err != nil {
+		return nil, err
+	}
+	wrapped, err := aes.EncryptAESGCM(wrappingKey, secret)
+	if err != nil {
+		return nil, fmt.Errorf("wrapping seed key failed: %w", err)
+	}
+	return &seedKeyInit{
+		EphemeralPub: selfOffer.EphemeralPub,
+		Nonce:        selfOffer.Nonce,
+		Quote:        selfOffer.Quote,
+		RecipientPub: peer.EphemeralPub,
+		WrappedKey:   wrapped,
+	}, nil
+}
+
+// unwrapSeedKey verifies the sender's inline offer and decrypts the seed key.
+func unwrapSeedKey(attestor sgx.Attestor, clusterId string, selfKx *pendingKeyExchange,
+	selfOffer *seedOffer, init *seedKeyInit) ([]byte, error) {
+	sender := &seedOffer{EphemeralPub: init.EphemeralPub, Nonce: init.Nonce, Quote: init.Quote}
+	if err := verifySeedOffer(attestor, clusterId, sender); err != nil {
+		return nil, err
+	}
+	if !bytes.Equal(init.RecipientPub, selfOffer.EphemeralPub) {
+		return nil, errors.New("seed key was not wrapped to this node's offer")
+	}
+	senderPub, err := ecdh.X25519().NewPublicKey(init.EphemeralPub)
+	if err != nil {
+		return nil, fmt.Errorf("bad ephemeral public key: %w", err)
+	}
+	shared, err := selfKx.priv.ECDH(senderPub)
+	if err != nil {
+		return nil, fmt.Errorf("ecdh failed: %w", err)
+	}
+	transcript := seedTranscript(selfOffer.EphemeralPub, selfOffer.Nonce, init.EphemeralPub, init.Nonce)
+	wrappingKey, err := seedWrappingKey(shared, transcript, init.EphemeralPub)
+	if err != nil {
+		return nil, err
+	}
+	secret, err := aes.DecryptAESGCM(wrappingKey, init.WrappedKey)
+	if err != nil {
+		return nil, fmt.Errorf("unwrapping seed key failed: %w", err)
+	}
+	if len(secret) != masterKeyLen {
+		return nil, fmt.Errorf("unexpected seed key length %d, want %d", len(secret), masterKeyLen)
+	}
+	return secret, nil
 }
 
 // unwrapMasterKey verifies that the responder's quote is bound to this exchange

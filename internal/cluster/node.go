@@ -320,6 +320,7 @@ func NewNode(clusterConfig *common.ClusterConfig, enclaveConfig *common.EnclaveC
 		seed: &seed{
 			id:             nid,
 			otherSeedNodes: seedNodes.Sorted(),
+			offers:         map[string]*seedOffer{},
 		},
 	}
 	node := &Node{

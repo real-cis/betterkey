@@ -209,6 +209,148 @@ func TestKeyExchangeRejectsMalformedMaterial(t *testing.T) {
 	})
 }
 
+const testClusterId = "test-cluster"
+
+func TestSeedKeyExchangeRoundTrip(t *testing.T) {
+	cases := []struct {
+		name     string
+		attestor sgx.Attestor
+	}{
+		{"attested", fakeAttestor{}},
+		{"attestation disabled", sgx.NewAttestor(nil)},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			secret := testMasterKey(t)
+
+			senderOffer, senderKx, err := newSeedOffer(tc.attestor, testClusterId)
+			require.NoError(t, err)
+			recipientOffer, recipientKx, err := newSeedOffer(tc.attestor, testClusterId)
+			require.NoError(t, err)
+
+			// the recipient verifies the offer it received before wrapping to it
+			require.NoError(t, verifySeedOffer(tc.attestor, testClusterId, senderOffer))
+
+			init, err := wrapSeedKey(senderKx, senderOffer, recipientOffer, secret)
+			require.NoError(t, err)
+
+			raw, err := base64.StdEncoding.DecodeString(init.WrappedKey)
+			require.NoError(t, err)
+			require.False(t, bytes.Contains(raw, secret), "seed key leaked into the wrapped payload")
+
+			got, err := unwrapSeedKey(tc.attestor, testClusterId, recipientKx, recipientOffer, init)
+			require.NoError(t, err)
+			require.Equal(t, secret, got)
+		})
+	}
+}
+
+// Both peers of a pair must derive the same transcript regardless of direction.
+func TestSeedTranscriptIsOrderIndependent(t *testing.T) {
+	a, na, err := newKxEphemeral()
+	require.NoError(t, err)
+	b, nb, err := newKxEphemeral()
+	require.NoError(t, err)
+
+	pubA, pubB := a.PublicKey().Bytes(), b.PublicKey().Bytes()
+	require.Equal(t,
+		seedTranscript(pubA, na, pubB, nb),
+		seedTranscript(pubB, nb, pubA, na),
+	)
+}
+
+// wk(S->R) must differ from wk(R->S) so a wrap cannot be reflected.
+func TestSeedWrapIsDirectionSeparated(t *testing.T) {
+	attestor := sgx.NewAttestor(nil)
+
+	aOffer, aKx, err := newSeedOffer(attestor, testClusterId)
+	require.NoError(t, err)
+	bOffer, _, err := newSeedOffer(attestor, testClusterId)
+	require.NoError(t, err)
+
+	secret := testMasterKey(t)
+	aToB, err := wrapSeedKey(aKx, aOffer, bOffer, secret)
+	require.NoError(t, err)
+
+	// reflect A's ciphertext back at A, relabelled as if B had sent it
+	reflected := &seedKeyInit{
+		EphemeralPub: bOffer.EphemeralPub,
+		Nonce:        bOffer.Nonce,
+		Quote:        bOffer.Quote,
+		RecipientPub: aOffer.EphemeralPub,
+		WrappedKey:   aToB.WrappedKey,
+	}
+	_, err = unwrapSeedKey(attestor, testClusterId, aKx, aOffer, reflected)
+	require.ErrorContains(t, err, "unwrapping seed key failed")
+}
+
+// A key wrapped to one peer must not be openable by another.
+func TestSeedKeyOnlyUnwrappableByIntendedPeer(t *testing.T) {
+	attestor := sgx.NewAttestor(nil)
+
+	senderOffer, senderKx, err := newSeedOffer(attestor, testClusterId)
+	require.NoError(t, err)
+	recipientOffer, _, err := newSeedOffer(attestor, testClusterId)
+	require.NoError(t, err)
+	otherOffer, otherKx, err := newSeedOffer(attestor, testClusterId)
+	require.NoError(t, err)
+
+	init, err := wrapSeedKey(senderKx, senderOffer, recipientOffer, testMasterKey(t))
+	require.NoError(t, err)
+
+	_, err = unwrapSeedKey(attestor, testClusterId, otherKx, otherOffer, init)
+	require.ErrorContains(t, err, "not wrapped to this node's offer")
+}
+
+// An offer quote is valid only for the cluster it was minted in.
+func TestSeedOfferBoundToCluster(t *testing.T) {
+	attestor := fakeAttestor{}
+
+	offer, _, err := newSeedOffer(attestor, testClusterId)
+	require.NoError(t, err)
+
+	require.NoError(t, verifySeedOffer(attestor, testClusterId, offer))
+	require.ErrorContains(t,
+		verifySeedOffer(attestor, "other-cluster", offer),
+		"seed offer attestation rejected")
+}
+
+// Substituting the ephemeral key while forwarding a valid quote must fail.
+func TestSeedOfferRejectsSubstitutedKey(t *testing.T) {
+	attestor := fakeAttestor{}
+
+	victim, _, err := newSeedOffer(attestor, testClusterId)
+	require.NoError(t, err)
+	attackerKey, _, err := newKxEphemeral()
+	require.NoError(t, err)
+
+	forged := &seedOffer{
+		EphemeralPub: attackerKey.PublicKey().Bytes(),
+		Nonce:        victim.Nonce,
+		Quote:        victim.Quote,
+	}
+	require.ErrorContains(t,
+		verifySeedOffer(attestor, testClusterId, forged),
+		"seed offer attestation rejected")
+}
+
+func TestSeedKeyRejectsUnattestedSender(t *testing.T) {
+	attestor := fakeAttestor{}
+
+	senderOffer, senderKx, err := newSeedOffer(attestor, testClusterId)
+	require.NoError(t, err)
+	recipientOffer, recipientKx, err := newSeedOffer(attestor, testClusterId)
+	require.NoError(t, err)
+
+	init, err := wrapSeedKey(senderKx, senderOffer, recipientOffer, testMasterKey(t))
+	require.NoError(t, err)
+	init.Quote = nil
+
+	_, err = unwrapSeedKey(attestor, testClusterId, recipientKx, recipientOffer, init)
+	require.ErrorContains(t, err, "no quote")
+}
+
 // An enabled attestor must never accept a peer that simply omits its quote.
 func TestEnabledAttestorRequiresQuote(t *testing.T) {
 	attestor := fakeAttestor{}

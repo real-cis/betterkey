@@ -47,6 +47,7 @@ const (
 	MSG_TYPE_KEYQUERY       = 3
 	MSG_TYPE_KEYQUERY_RESP  = 4
 	MSG_TYPE_KEYINIT        = 5
+	MSG_TYPE_SEED_OFFER     = 6
 )
 
 const (
@@ -107,6 +108,20 @@ func (c *Node) loop() {
 		}
 		state := c.NodeStatus().State
 		slog.Debug("received hb message", "type", msg.Type, "from", msg.Sender.Id, "currentState", state)
+
+		// Seed offers race the decision to start seeding: a peer may publish
+		// its offer while this node is still in NO_KEY, or has not left state 0
+		// yet. Accept them in any pre-READY state, otherwise a late starter
+		// could never wrap the seed key to that peer.
+		if msg.Type == MSG_TYPE_SEED_OFFER {
+			if state == NODE_STATE_READY {
+				slog.Debug("drop seed offer, already READY", "from", msg.Sender.Id)
+			} else {
+				c.handleSeedOffer(&msg)
+			}
+			continue
+		}
+
 		switch state {
 		case 0:
 			slog.Info("Not ready yet")
