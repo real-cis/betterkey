@@ -1,7 +1,7 @@
 {
     "exe": "main",
     "key": "_SIGNERKEY_",
-    "debug": true,
+    "debug": false,
     "heapSize": 512,
     "executableHeap": false,
     "productID": 2025,
@@ -12,7 +12,7 @@
             "target": "/sealed",
             "type": "hostfs",
             "readOnly": false
-        }, 
+        },
         {
             "source": "/certs",
             "target": "/certs",
