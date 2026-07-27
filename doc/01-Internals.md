@@ -51,7 +51,27 @@ The **cluster master key** is the root secret for all key operations.
 
 #### Initial cluster
 
-When a Betterkey cluster starts for the very first time, the configured seed nodes collaborate to create a shared master key. They first elect a “master seed” by sorting their node names and picking the first one. This master seed generates a fresh 32‑byte random value that becomes the cluster master key. It sends this key to the other seed nodes over mutually attested TLS connections. To add redundancy and detect inconsistencies, the non‑master seed nodes also forward the same key to each other in a gossip‑style fashion. Once every seed node has received and confirmed the same key, each one seals it to disk using SGX (binding it to that CPU and enclave identity) and moves into the `READY` state.
+When a Betterkey cluster starts for the very first time, the configured seed nodes collaborate to create a shared master key. They first elect a “master seed” by sorting their node names and picking the first one. This master seed generates a fresh 32‑byte random value that becomes the cluster master key. To add redundancy and detect inconsistencies, the non‑master seed nodes also forward the same key to each other in a gossip‑style fashion. Once every seed node has received and confirmed the same key, each one seals it to disk using SGX (binding it to that CPU and enclave identity) and moves into the `READY` state.
+
+The key is never sent in plaintext. Seeding is a *push*, so a sender must wrap before hearing anything from the recipient; each seed node therefore publishes one attested ephemeral key — its **offer** — before any key is distributed:
+
+```
+On entering SEEDING, every seed node broadcasts
+  SEED_OFFER{ eph_X, n_X, q_X }      q_X = quote(SHA512("bk-seed-offer-v1"|clusterId|eph_X|n_X))
+
+To send the key to peer R, a holder S wraps it to R's verified offer
+  transcript = SHA256(lo_pub|hi_pub|lo_nonce|hi_nonce)   // canonical order, same on both sides
+  ss         = ECDH(priv_S, eph_R) = ECDH(priv_R, eph_S)
+  wk         = HKDF(ss, salt=transcript, info="betterkey/seed-wrap/v1"|eph_S)
+  KEYINIT{ eph_S, n_S, q_S, recipientPub: eph_R, AESGCM(wk, mk) }
+```
+
+* One quote per node per round (**N** quotes for N seed nodes), not one per pair — the offer is a reusable commitment, so the N(N−1) sends are cheap ECDH/HKDF/AEAD operations.
+* Including `eph_S` in the HKDF info separates directions, so `wk(S→R) ≠ wk(R→S)` and a wrapped key cannot be reflected back at its sender.
+* The cluster id is inside the offer binding, so an offer cannot be replayed into another cluster.
+* `KEYINIT` carries the sender's offer inline, so it is self-contained: a recipient that missed the sender's broadcast can still verify and unwrap it.
+* Offers are accepted in any pre-`READY` state, because a peer may publish its offer before this node has decided to seed; they are discarded when the round completes.
+* The agreement check is unchanged — each node compares the *unwrapped* key from every other seed node and only becomes `READY` once all of them match.
 
 #### Joining an existing cluster
 
@@ -84,7 +104,7 @@ Properties:
 
 Nodes built without an enclave configuration (non-SGX development builds) run the same exchange without quotes.
 
-> **Note:** initial seeding between seed nodes (`MSG_TYPE_KEYINIT`) still distributes the master key over the attested TLS channel without this wrapping.
+Initial seeding between seed nodes uses the same principle with a push-shaped variant — see [Initial cluster](#initial-cluster).
 
 #### Node restart
 
