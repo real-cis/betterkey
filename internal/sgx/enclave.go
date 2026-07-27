@@ -188,6 +188,10 @@ func (n *SGXTlsConfig) ServerTlsConfig() *tls.Config {
 	tlsCfg.InsecureSkipVerify = true
 	tlsCfg.ClientAuth = tls.RequestClientCert
 	tlsCfg.VerifyPeerCertificate = *n.certVerifer
+	// A resumed session does not re-send the peer certificate, so the quote
+	// embedded in it is never re-validated and the connection would inherit
+	// trust from an earlier handshake. Never hand out tickets.
+	tlsCfg.SessionTicketsDisabled = true
 	tlsCfg.Certificates = []tls.Certificate{
 		{
 			Certificate: [][]byte{n.certificate},
@@ -201,6 +205,10 @@ func (n *SGXTlsConfig) ServerTlsConfig() *tls.Config {
 func (n *SGXTlsConfig) ClientTlsConfig() *tls.Config {
 	tlsCfg := enclave.CreateAttestationClientTLSConfig(*n.reportVerifier)
 	tlsCfg.InsecureSkipVerify = true
+	// A nil cache means this client never offers resumption, so every
+	// connection re-runs the full attestation handshake. Do not set one to cut
+	// handshake cost: it would silently stop peers being re-attested.
+	tlsCfg.ClientSessionCache = nil
 	tlsCfg.Certificates = []tls.Certificate{
 		{
 			Certificate: [][]byte{n.certificate},
