@@ -68,6 +68,13 @@ func (m *PeerMessage) toJson() ([]byte, error) {
 	return json.Marshal(m)
 }
 
+// currentState returns the node's state without the extra work NodeStatus does.
+func (c *Node) currentState() int {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return c.state.state
+}
+
 func (c *Node) setStatus(stat int) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
@@ -206,7 +213,7 @@ func (c *Node) onNoKey() {
 		membersCanProvideKey := membersCanProvideKey(joinedMembers)
 
 		if membersCanProvideKey {
-			c.queryKey(joinedMembers)
+			c.queryKey()
 			break
 		}
 
@@ -231,7 +238,7 @@ func (c *Node) onNoKey() {
 
 			slog.Info("onNoKey", "membersCanProvideKey", membersCanProvideKey, "allSeedPeersJoined", allSeedPeersJoined)
 
-			// only seed when memberlist is fixed
+			// only seed when all seed peers have joined
 			if allSeedPeersJoined {
 				c.seed(c.copyClusterPeers())
 				break

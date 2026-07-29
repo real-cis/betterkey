@@ -22,6 +22,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"slices"
@@ -39,8 +40,13 @@ import (
 type MasterKeyStore struct {
 	File             string
 	ConfiguredNodeId *common.NodeInfo
-	cachedMasterkey  *common.Member
 	hasSGX           bool
+
+	// mu guards cachedMasterkey. Read is reached concurrently from the
+	// heartbeat manager, memberlist's delegate goroutines (via NodeStatus),
+	// the cluster message loop and the web handlers.
+	mu              sync.RWMutex
+	cachedMasterkey *common.Member
 }
 
 type SGXTlsConfig struct {
@@ -257,6 +263,16 @@ func NewMasterkeyStore(nodeInfo *common.NodeInfo, keyFolder string, config *comm
 }
 
 func (ks *MasterKeyStore) Read() *common.Member {
+	ks.mu.RLock()
+	cached := ks.cachedMasterkey
+	ks.mu.RUnlock()
+	if cached != nil {
+		return cached
+	}
+
+	ks.mu.Lock()
+	defer ks.mu.Unlock()
+	// another goroutine may have populated the cache while we waited
 	if ks.cachedMasterkey != nil {
 		return ks.cachedMasterkey
 	}
@@ -285,24 +301,30 @@ func (ks *MasterKeyStore) Read() *common.Member {
 
 func (ks *MasterKeyStore) Write(secret *common.MasterSecret) {
 	m := &common.Member{NodeInfo: ks.ConfiguredNodeId, MasterSecret: secret}
-	json, err := json.Marshal(m)
+	data, err := json.Marshal(m)
 	if err != nil {
 		panic(err)
 	}
 	var sealed []byte
 	if ks.hasSGX {
 		var e []byte
-		sealed, err = ecrypto.SealWithProductKey(json, e)
+		sealed, err = ecrypto.SealWithProductKey(data, e)
 	} else {
-		sealed = json
+		sealed = data
 	}
 	if err != nil {
 		panic(err)
 	}
+
+	ks.mu.Lock()
+	defer ks.mu.Unlock()
 	err = os.WriteFile(ks.File, sealed, fs.ModePerm)
 	if err != nil {
 		panic(err)
 	}
+	// keep the cache coherent with what is now on disk; previously a Write
+	// left an already-populated cache holding the superseded key
+	ks.cachedMasterkey = m
 }
 
 func ValidateSignedQuote(quote []byte) (*common.SGXReport, error) {

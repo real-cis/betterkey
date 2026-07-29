@@ -15,30 +15,71 @@ import (
 	"gitlab.com/real-cis/cc/betterkey/internal/common"
 )
 
-func (c *Node) queryKey(peers []*memberlist.Node) {
+// keyQueryRetryInterval bounds how often a node without a master key re-asks a
+// READY peer for it.
+const keyQueryRetryInterval = 10 * time.Second
+
+func (c *Node) queryKey() {
 	c.setStatus(NODE_STATE_QUERY_KEY)
-	go func() {
-		for _, m := range peers {
-			//don't ask myself
-			if m.Name == c.id {
-				continue
-			}
-			nm, err := NodeMetaFromBytes(m.Meta)
-			if err != nil || nm.State != NODE_STATE_READY {
-				continue
-			}
-			msg, err := c.newKeyQuery()
-			if err != nil {
-				slog.Error("failed building key-query", "error", err)
-				return
-			}
-			slog.Info("attempt query key", "to", m.Addr)
-			if err := c.list.SendReliable(m, msg); err != nil {
-				slog.Error("failed sending key-query", "error", err)
-			}
-			break
+	go c.queryKeyLoop()
+}
+
+// queryKeyLoop asks READY peers for the master key until this node has it.
+// An attempt can fail without any local error - the peer may reject the
+// request, or run a version whose key-exchange format this node cannot parse -
+// so keep retrying, rotating through the available peers so that one peer which
+// cannot answer does not starve the others.
+func (c *Node) queryKeyLoop() {
+	for attempt := 0; ; attempt++ {
+		// Read the raw state rather than NodeStatus(): once the node reaches
+		// READY that would also mint a heartbeat, pulling the master key store
+		// into this goroutine for no reason.
+		if c.currentState() != NODE_STATE_QUERY_KEY {
+			// key received, or the node moved on
+			return
 		}
-	}()
+		peers := c.readyPeers()
+		if len(peers) == 0 {
+			slog.Info("no READY peer available to query for key")
+		} else {
+			peer := peers[attempt%len(peers)]
+			slog.Info("attempt query key", "to", peer.Addr, "attempt", attempt+1)
+			if err := c.sendKeyQuery(peer); err != nil {
+				slog.Error("failed sending key-query", "to", peer.Name, "error", err)
+			}
+		}
+		select {
+		case <-time.After(keyQueryRetryInterval):
+		case <-c.shutdownCh:
+			return
+		}
+	}
+}
+
+func (c *Node) readyPeers() []*memberlist.Node {
+	peers := []*memberlist.Node{}
+	for _, m := range c.list.Members() {
+		//don't ask myself
+		if m.Name == c.id {
+			continue
+		}
+		nm, err := NodeMetaFromBytes(m.Meta)
+		if err != nil || nm.State != NODE_STATE_READY {
+			continue
+		}
+		peers = append(peers, m)
+	}
+	return peers
+}
+
+// sendKeyQuery starts a fresh exchange: each attempt gets its own ephemeral key
+// and quote, replacing any pending state from an earlier attempt.
+func (c *Node) sendKeyQuery(peer *memberlist.Node) error {
+	msg, err := c.newKeyQuery()
+	if err != nil {
+		return err
+	}
+	return c.list.SendReliable(peer, msg)
 }
 
 // newKeyQuery generates this node's ephemeral key pair, quotes it, and records
@@ -146,7 +187,8 @@ func (c *Node) handleKeyResponse(p *PeerMessage) {
 	}
 	secret, err := unwrapMasterKey(c.attestor, pending, &resp)
 	if err != nil {
-		// The node stays in QUERY_KEY; a later queryKey() starts a fresh exchange.
+		// The node stays in QUERY_KEY; queryKeyLoop retries with a fresh
+		// exchange, against the next peer in rotation.
 		slog.Error("rejecting key response", "from", p.Sender.Id, "error", err)
 		return
 	}

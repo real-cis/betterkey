@@ -42,6 +42,10 @@ type Node struct {
 	// pendingKx holds the ephemeral state of an outstanding key query; guarded
 	// by lock.
 	pendingKx *pendingKeyExchange
+	// shutdownCh is closed on Shutdown so background loops stop before
+	// memberlist goes away.
+	shutdownCh   chan struct{}
+	shutdownOnce sync.Once
 }
 
 func (c *Node) ConfiguredPeerAddresses() []string {
@@ -134,6 +138,9 @@ func (c *Node) Start() {
 // common.ClusterNode
 func (n *Node) Shutdown() {
 	log.Println("Shutting down...")
+
+	// stop background loops before memberlist goes away
+	n.shutdownOnce.Do(func() { close(n.shutdownCh) })
 
 	// shutdown memberlist first to release the TCP port
 	if n.list != nil {
@@ -334,6 +341,7 @@ func NewNode(clusterConfig *common.ClusterConfig, enclaveConfig *common.EnclaveC
 		seedNodes:               configuredSeedNodes,
 		inMessages:              make(chan PeerMessage, 1024),
 		stateChangeMessages:     make(chan int, 1024),
+		shutdownCh:              make(chan struct{}),
 		stateListener:           stateListener,
 		heartbeatManager:        NewHeartBeatManager(prov, 15*time.Minute, 2*time.Minute, stateListener, nodeState),
 		nodeTls:                 nodeTls,
