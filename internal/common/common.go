@@ -41,10 +41,14 @@ type ClusterConfig struct {
 	AcmeProvider       string   `env:"ACME_PROVIDER" envDefault:"https://acme-v02.api.letsencrypt.org/directory"`
 	DevMode            bool     `env:"DEV_MODE" envDefault:"true"`
 	EnforceQuoteVerify bool     `env:"TDX_ENFORCE_QUOTE_VERIFY" envDefault:"true"`
-	JournalEndpoint    string   `env:"JOURNAL_S3_ENDPOINT"`
-	JournalRegion      string   `env:"JOURNAL_S3_REGION"`
-	JournalAccessKey   string   `env:"JOURNAL_S3_ACCESS_KEY"`
-	JournalSecretKey   string   `env:"JOURNAL_S3_SECRET_KEY"`
+	// Reject key requests that do not carry an attested ephemeral key. Defaults
+	// off so already-deployed clients keep working; until it is on, derived key
+	// material is readable by any TLS terminator in the path.
+	EnforceKeyWrapping bool   `env:"KDS_ENFORCE_KEY_WRAPPING" envDefault:"false"`
+	JournalEndpoint    string `env:"JOURNAL_S3_ENDPOINT"`
+	JournalRegion      string `env:"JOURNAL_S3_REGION"`
+	JournalAccessKey   string `env:"JOURNAL_S3_ACCESS_KEY"`
+	JournalSecretKey   string `env:"JOURNAL_S3_SECRET_KEY"`
 }
 
 // Configuration for the SGX enclave

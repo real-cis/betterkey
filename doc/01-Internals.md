@@ -153,8 +153,69 @@ The HTTP API server starts only after the node reaches `READY` state.
 
 * Key derivation, at the moment, is enabled for TDX VMs, and the requesting client must pass an attestation challenge
     - Key derivation service generates a nonce and session id, and send these as an attestation challenge to the requesting client.
-    - The client, upon receiving the nonce, generates a TD Report with nonce as the Report Data, and sends the signed quote back to key derivation service.
-    - Key derivation service validates the nonce and quote, then derives a key seed from both MRTD and CFV measurements.
+    - The client generates an ephemeral X25519 key pair inside the TD and a TD Report whose Report Data binds the nonce and that key (see below), then sends the signed quote back to key derivation service.
+    - Key derivation service validates the quote, derives a key seed from both MRTD and CFV measurements, and returns the key material **encrypted to the client's ephemeral key**.
+
+#### Attested key exchange (client key delivery)
+
+Derived key material must not be readable by anything between the client TD and the enclave. TLS cannot provide that here: the endpoint sits behind a load balancer that **terminates TLS**, so exporter-based channel binding is impossible and the terminator sees the plaintext response. The exchange therefore ignores the transport and wraps the key to a key pair the TD proved it holds — the same construction used for cluster master-key transfer.
+
+```
+Client (in TD)                            KDS node (SGX)
+  eph_c generated inside the TD
+  q_c = TD quote, report_data =
+        SHA512("bk-kds-req-v1" || nonce || eph_c.pub)
+     --- POST /key/finalize { sessionId, quote: q_c, eventLog, ephemeralPub } --->
+                            verify q_c is bound to nonce and eph_c.pub
+                            eph_s ; ss = ECDH(eph_s, eph_c)
+                            tr    = SHA256(eph_c.pub || eph_s.pub || nonce)
+                            q_s   = SGX quote over SHA512("bk-kds-resp-v1" || tr)
+                            wk    = HKDF(ss, salt=tr, info="betterkey/kds-wrap/v1")
+     <--- { ephemeralPub: eph_s.pub, quote: q_s, wrappedKey: AESGCM(wk, keyResponseJSON) } ---
+  verify q_s is bound to tr, then unwrap inside the TD
+```
+
+* The load balancer sees ciphertext it cannot decrypt, so TLS termination stops being a disclosure path.
+* This **subsumes** channel binding: the key is encrypted to a key an attested TD proved it holds, which is stronger than proving the quote came from a given TLS session — and it is transport-independent, so future proxy changes cannot break it.
+* The server quote is bound to the full transcript, so the client can authenticate the enclave end to end. That is the only server attestation available once TLS is terminated, and it works regardless of whether the node serves its own certificate or an ACME one.
+* `wrappedKey` decrypts to the same `KeyResponse` JSON the legacy flow returned, so client code downstream of the unwrap is unchanged.
+
+`/key/init` advertises the scheme so clients can detect it:
+
+```json
+{ "nonce": "...", "sessionId": "...",
+  "keyExchange": "betterkey/kds-kx/v1", "keyExchangeRequired": false }
+```
+
+`KDS_ENFORCE_KEY_WRAPPING` controls enforcement and **defaults to `false`** so already-deployed clients keep working. While it is off the server still accepts a request without `ephemeralPub`, verifies the quote against the bare nonce and replies in plaintext, logging a warning per request. That legacy path offers no protection against the terminator, so **the exposure is only closed once this is set to `true`**. Turn it on after all clients are updated.
+
+#### Attested key exchange (seal payloads)
+
+`/tdx/seal/*` needs the same protection in the **opposite direction**: the payload to be sealed travels client → enclave, so the enclave publishes the ephemeral key and the client wraps to it.
+
+```
+Client (in TD)                            KDS node (SGX)
+     --- POST /tdx/seal/init { id, mrtd, cfv }  (no payload) --->
+                            eph_s generated for the session
+                            q_s = SGX quote, report_data =
+                                  SHA512("bk-seal-offer-v1" || nonce || eph_s.pub)
+     <--- { nonce, sessionId, keyExchange, ephemeralPub: eph_s.pub, quote: q_s } ---
+  verify q_s binds nonce and eph_s.pub
+  eph_c generated inside the TD
+  ss = ECDH(eph_c, eph_s) ; tr = SHA256(eph_c.pub || eph_s.pub || nonce)
+  wk = HKDF(ss, salt=tr, info="betterkey/seal-wrap/v1")
+  q_c = TD quote, report_data = SHA512("bk-seal-req-v1" || nonce || eph_c.pub)
+     --- POST /tdx/seal/finalize { sessionId, quote: q_c, ephemeralPub,
+                                   wrappedPayload: AESGCM(wk, payload) } --->
+                            verify q_c is bound to nonce and eph_c.pub
+                            unwrap the payload, then seal it as before
+```
+
+* **Omitting `payload` at init selects the wrapped flow.** A request that still carries `payload` is the legacy plaintext flow, where the terminator reads it; it logs a warning and is refused outright once `KDS_ENFORCE_KEY_WRAPPING` is on.
+* The offer quote commits the enclave to `eph_s.pub`, so a client can confirm it is wrapping to a genuine enclave rather than to the terminator.
+* Labels differ from the key-delivery flow (`bk-seal-*` vs `bk-kds-*`, and distinct HKDF info strings), so material from one flow cannot be replayed into the other.
+* The seal **response** needs no wrapping: it is already ciphertext under a key derived from the requesting TD's own measurements.
+* `eph_s`'s private half is stored in the session record rather than held in memory, because `init` and `finalize` may be served by different nodes behind the load balancer. That record lives in the Valkey store, which is sealed with the cluster master key, so it is readable only by cluster enclaves — and only for the 60-second session TTL.
 
 #### Key Derivation Flow
 

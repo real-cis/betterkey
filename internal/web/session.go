@@ -21,10 +21,16 @@ func NewSessionStore(kv common.BaseKeyStore) *SessionStore {
 	return &SessionStore{kv: kv}
 }
 
-// Create generates a new session id and persists {session, nonce, payload}
-func (s *SessionStore) Create(nonce []byte, payload string) (string, error) {
+// Create generates a new session id and persists {session, nonce, payload}.
+// serverEphPriv is the ephemeral private key this node published for the client
+// to wrap its request payload to; nil when the flow publishes none.
+func (s *SessionStore) Create(nonce []byte, payload string, serverEphPriv []byte) (string, error) {
 	sessionId := crypto.GenerateSessionID()
-	jsonData, err := json.Marshal(api.AttestationRequestStore{Nonce: nonce, Payload: payload})
+	jsonData, err := json.Marshal(api.AttestationRequestStore{
+		Nonce:               nonce,
+		Payload:             payload,
+		ServerEphemeralPriv: serverEphPriv,
+	})
 	if err != nil {
 		return "", err
 	}

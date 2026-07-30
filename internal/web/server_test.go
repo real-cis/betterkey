@@ -177,7 +177,7 @@ func TestNewHTTPServer(t *testing.T) {
 
 			tt.setupMocks(mockKVStore, mockVault)
 
-			server := NewKeyServer(config, mockKVStore, nodeMeta, mockVault, tlsConfig)
+			server := NewKeyServer(config, nil, mockKVStore, nodeMeta, mockVault, tlsConfig)
 
 			tt.validateServer(t, server)
 
@@ -194,7 +194,7 @@ func TestHTTPServerRoutes(t *testing.T) {
 	nodeMeta := createTestNodeMeta()
 	tlsConfig := createTestTLSConfig()
 
-	server := NewKeyServer(config, mockKVStore, nodeMeta, mockVault, tlsConfig)
+	server := NewKeyServer(config, nil, mockKVStore, nodeMeta, mockVault, tlsConfig)
 
 	// Check that routes exist in the router
 	chiRoutes := server.Router.Routes()
@@ -219,7 +219,7 @@ func TestHTTPServerHealthEndpoint(t *testing.T) {
 	nodeMeta := createTestNodeMeta()
 	tlsConfig := createTestTLSConfig()
 
-	server := NewKeyServer(config, mockKVStore, nodeMeta, mockVault, tlsConfig)
+	server := NewKeyServer(config, nil, mockKVStore, nodeMeta, mockVault, tlsConfig)
 
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
@@ -240,7 +240,7 @@ func TestHTTPServerMiddleware(t *testing.T) {
 	nodeMeta := createTestNodeMeta()
 	tlsConfig := createTestTLSConfig()
 
-	server := NewKeyServer(config, mockKVStore, nodeMeta, mockVault, tlsConfig)
+	server := NewKeyServer(config, nil, mockKVStore, nodeMeta, mockVault, tlsConfig)
 
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
@@ -279,7 +279,7 @@ func TestHTTPServerTLSConfiguration(t *testing.T) {
 			nodeMeta := createTestNodeMeta()
 			tlsConfig := createTestTLSConfig()
 
-			server := NewKeyServer(config, mockKVStore, nodeMeta, mockVault, tlsConfig)
+			server := NewKeyServer(config, nil, mockKVStore, nodeMeta, mockVault, tlsConfig)
 
 			tt.checkTLS(t, server.server.TLSConfig)
 		})
@@ -297,7 +297,7 @@ func TestHTTPServerConfiguration(t *testing.T) {
 	nodeMeta := createTestNodeMeta()
 	tlsConfig := createTestTLSConfig()
 
-	server := NewKeyServer(config, mockKVStore, nodeMeta, mockVault, tlsConfig)
+	server := NewKeyServer(config, nil, mockKVStore, nodeMeta, mockVault, tlsConfig)
 
 	assert.Equal(t, 9443, server.Port)
 	assert.Equal(t, "custom.domain.com", server.Domain)
@@ -312,7 +312,7 @@ func TestHTTPServerServicesInitialization(t *testing.T) {
 	nodeMeta := createTestNodeMeta()
 	tlsConfig := createTestTLSConfig()
 
-	server := NewKeyServer(config, mockKVStore, nodeMeta, mockVault, tlsConfig)
+	server := NewKeyServer(config, nil, mockKVStore, nodeMeta, mockVault, tlsConfig)
 
 	// Verify all services are properly initialized
 	assert.NotNil(t, server.keyService, "KeyGenService should be initialized")
@@ -349,7 +349,7 @@ func TestHTTPServerDevModeConfiguration(t *testing.T) {
 			nodeMeta := createTestNodeMeta()
 			tlsConfig := createTestTLSConfig()
 
-			server := NewKeyServer(config, mockKVStore, nodeMeta, mockVault, tlsConfig)
+			server := NewKeyServer(config, nil, mockKVStore, nodeMeta, mockVault, tlsConfig)
 
 			assert.NotNil(t, server)
 			// Services should be initialized regardless of dev mode

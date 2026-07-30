@@ -88,7 +88,7 @@ func TestKeyExchangeRejectsSubstitutedRequesterKey(t *testing.T) {
 	require.NoError(t, err)
 
 	forged := &keyExchangeRequest{
-		EphemeralPub: attackerKey.PublicKey().Bytes(),
+		EphemeralPub: attackerKey.Public(),
 		Nonce:        victim.Nonce,
 		Quote:        victim.Quote,
 	}
@@ -108,7 +108,7 @@ func TestKeyExchangeRejectsSubstitutedResponderKey(t *testing.T) {
 
 	attackerKey, _, err := newKxEphemeral()
 	require.NoError(t, err)
-	resp.EphemeralPub = attackerKey.PublicKey().Bytes()
+	resp.EphemeralPub = attackerKey.Public()
 
 	_, err = unwrapMasterKey(attestor, pending, resp)
 	require.ErrorContains(t, err, "responder attestation rejected")
@@ -253,7 +253,7 @@ func TestSeedTranscriptIsOrderIndependent(t *testing.T) {
 	b, nb, err := newKxEphemeral()
 	require.NoError(t, err)
 
-	pubA, pubB := a.PublicKey().Bytes(), b.PublicKey().Bytes()
+	pubA, pubB := a.Public(), b.Public()
 	require.Equal(t,
 		seedTranscript(pubA, na, pubB, nb),
 		seedTranscript(pubB, nb, pubA, na),
@@ -326,7 +326,7 @@ func TestSeedOfferRejectsSubstitutedKey(t *testing.T) {
 	require.NoError(t, err)
 
 	forged := &seedOffer{
-		EphemeralPub: attackerKey.PublicKey().Bytes(),
+		EphemeralPub: attackerKey.Public(),
 		Nonce:        victim.Nonce,
 		Quote:        victim.Quote,
 	}

@@ -16,34 +16,53 @@ import (
 type ChallengeResponse interface {
 	// Init initializes an attestation session and returns a nonce, session ID
 	Init(requestData string) (*api.VerifyResponse, error)
-	// Verify verifies the quote and that its report data matches the session nonce.
-	Verify(record *api.AttestationRequestStore, tdQuote string) (*tdx.TdxQuote, *ErrorWithCode)
+	// Verify verifies the quote and that its report data matches expectedReportData,
+	// which is either the bare session nonce or a binding derived from it.
+	Verify(record *api.AttestationRequestStore, tdQuote string,
+		expectedReportData []byte) (*tdx.TdxQuote, *ErrorWithCode)
 }
 
 type AttestationVerificationProtocol struct {
 	sessions           *SessionStore
 	devMode            bool
 	enforceQuoteVerify bool
+	// keyExchangeScheme is advertised in Init so clients can discover and adopt
+	// the attested key exchange; empty means this flow offers none.
+	keyExchangeScheme string
+	// keyExchangeRequired reports whether clients that skip it are rejected.
+	keyExchangeRequired bool
 }
 
-func NewAttestationProtocol(sessions *SessionStore, dev bool, enforceQuoteVerify bool) ChallengeResponse {
+func NewAttestationProtocol(sessions *SessionStore, dev bool, enforceQuoteVerify bool,
+	keyExchangeScheme string, keyExchangeRequired bool) ChallengeResponse {
 	return &AttestationVerificationProtocol{
-		sessions:           sessions,
-		devMode:            dev,
-		enforceQuoteVerify: enforceQuoteVerify,
+		sessions:            sessions,
+		devMode:             dev,
+		enforceQuoteVerify:  enforceQuoteVerify,
+		keyExchangeScheme:   keyExchangeScheme,
+		keyExchangeRequired: keyExchangeRequired,
 	}
 }
 
 func (a *AttestationVerificationProtocol) Init(requestData string) (*api.VerifyResponse, error) {
 	nonce := crypto.GenerateNonce(64)
-	sessionId, err := a.sessions.Create(nonce, requestData)
+	sessionId, err := a.sessions.Create(nonce, requestData, nil)
 	if err != nil {
 		return nil, err
 	}
-	return &api.VerifyResponse{Nonce: base64.StdEncoding.EncodeToString(nonce), SessionId: sessionId}, nil
+	resp := &api.VerifyResponse{
+		Nonce:     base64.StdEncoding.EncodeToString(nonce),
+		SessionId: sessionId,
+	}
+	if a.keyExchangeScheme != "" {
+		resp.KeyExchange = a.keyExchangeScheme
+		resp.KeyExchangeRequired = a.keyExchangeRequired
+	}
+	return resp, nil
 }
 
-func (a *AttestationVerificationProtocol) Verify(requestStore *api.AttestationRequestStore, tdQuote string) (*tdx.TdxQuote, *ErrorWithCode) {
+func (a *AttestationVerificationProtocol) Verify(requestStore *api.AttestationRequestStore, tdQuote string,
+	expectedReportData []byte) (*tdx.TdxQuote, *ErrorWithCode) {
 	if tdQuote == "" {
 		return nil, NewError("Invalid quote", http.StatusUnauthorized)
 	}
@@ -66,7 +85,8 @@ func (a *AttestationVerificationProtocol) Verify(requestStore *api.AttestationRe
 		}
 	}
 
-	if err := quote.VerifyReportData(requestStore.Nonce); err != nil && !a.devMode {
+	if err := quote.VerifyReportData(expectedReportData); err != nil && !a.devMode {
+		slog.Error("report data verification failed", "error", err)
 		return nil, NewError("verification of nonce failed", http.StatusUnauthorized)
 	}
 

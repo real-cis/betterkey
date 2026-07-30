@@ -101,8 +101,15 @@ func (s *KeyServer) handleKeyRequestFinalize(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Decide what the client's quote must attest to before verifying it
+	expectedReportData, wrap, e := s.resolveKeyExchange(attestationRequest, record.Nonce)
+	if e != nil {
+		keyResponseError(w, e.Code, e.Message)
+		return
+	}
+
 	// Verify the quote against the already-fetched record
-	quote, e := s.challengeResponse.Verify(record, attestationRequest.Quote)
+	quote, e := s.challengeResponse.Verify(record, attestationRequest.Quote, expectedReportData)
 	if e != nil {
 		keyResponseError(w, e.Code, e.Message)
 		return
@@ -137,7 +144,48 @@ func (s *KeyServer) handleKeyRequestFinalize(w http.ResponseWriter, r *http.Requ
 	}
 	s.journalKeyRequest(keyRequest.Id, attestationRequest.SessionId, "Key request succeeded",
 		attestationRequest.Quote, quote.Summary().JSON(), eventLog.Summary().JSON(), journal.StatusSuccess)
-	respondJSON(w, http.StatusOK, keyResponse)
+
+	if !wrap {
+		respondJSON(w, http.StatusOK, keyResponse)
+		return
+	}
+
+	payload, err := json.Marshal(keyResponse)
+	if err != nil {
+		keyResponseError(w, http.StatusInternalServerError, "Failed to serialize key response")
+		return
+	}
+	wrapped, err := wrapKeyResponse(s.attestor, attestationRequest.EphemeralPub, record.Nonce, payload)
+	if err != nil {
+		slog.Error("wrapping key response failed", "sessionId", attestationRequest.SessionId, "error", err)
+		keyResponseError(w, http.StatusInternalServerError, "Failed to wrap key response")
+		return
+	}
+	respondJSON(w, http.StatusOK, wrapped)
+}
+
+// resolveKeyExchange decides what the client's quote must attest to, and whether
+// the response is wrapped.
+//
+// With an ephemeral key present the quote is bound to it and the derived key is
+// encrypted to it, so nothing between the TD and this enclave can read it.
+// Without one the client is on the legacy plaintext flow: that path offers no
+// protection against a TLS terminator, and an attacker would simply use it, so
+// the exposure stands until KDS_ENFORCE_KEY_WRAPPING is set.
+func (s *KeyServer) resolveKeyExchange(req api.AttestationRequest, nonce []byte) ([]byte, bool, *ErrorWithCode) {
+	if len(req.EphemeralPub) > 0 {
+		if err := validateEphemeralPub(req.EphemeralPub); err != nil {
+			return nil, false, &ErrorWithCode{Code: http.StatusBadRequest, Message: err.Error()}
+		}
+		return kdsRequestBinding(nonce, req.EphemeralPub), true, nil
+	}
+	if s.enforceKeyWrapping {
+		return nil, false, &ErrorWithCode{Code: http.StatusBadRequest,
+			Message: "key wrapping is required: request must carry ephemeralPub"}
+	}
+	slog.Warn("client is on the legacy unwrapped key flow; derived key material is readable by any " +
+		"TLS terminator in the path. Set KDS_ENFORCE_KEY_WRAPPING=true once all clients are updated")
+	return nonce, false, nil
 }
 
 // asynchronously records a key-request outcome to the journal.; non-blocking/best effort

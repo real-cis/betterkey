@@ -5,10 +5,6 @@ package cluster
 
 import (
 	"bytes"
-	"crypto/ecdh"
-	"crypto/rand"
-	"crypto/sha256"
-	"crypto/sha512"
 	"errors"
 	"fmt"
 
@@ -54,10 +50,7 @@ const (
 	kxSeedOfferLabel = "bk-seed-offer-v1"
 	kxSeedWrapInfo   = "betterkey/seed-wrap/v1"
 
-	kxNonceLen = 32
-	// X25519 public keys are always 32 bytes; fixed lengths keep the hashed
-	// concatenations in the bindings unambiguous.
-	kxPubLen     = 32
+	kxNonceLen   = 32
 	masterKeyLen = 32
 )
 
@@ -79,32 +72,22 @@ type keyExchangeResponse struct {
 // pendingKeyExchange is the requester's state between sending a key query and
 // receiving the response. The private key never leaves the enclave.
 type pendingKeyExchange struct {
-	priv  *ecdh.PrivateKey
+	priv  *crypto.Ephemeral
 	nonce []byte
 }
 
 func kxRequestBinding(ephPub, nonce []byte) []byte {
-	h := sha512.New()
-	h.Write([]byte(kxRequestLabel))
-	h.Write(ephPub)
-	h.Write(nonce)
-	return h.Sum(nil)
+	return crypto.LabeledHash512(kxRequestLabel, ephPub, nonce)
 }
 
+// kxTranscript covers both keys and both nonces; all four are fixed length, so
+// the concatenation is unambiguous.
 func kxTranscript(reqPub, respPub, reqNonce, respNonce []byte) []byte {
-	h := sha256.New()
-	h.Write(reqPub)
-	h.Write(respPub)
-	h.Write(reqNonce)
-	h.Write(respNonce)
-	return h.Sum(nil)
+	return crypto.Transcript(reqPub, respPub, reqNonce, respNonce)
 }
 
 func kxResponseBinding(transcript []byte) []byte {
-	h := sha512.New()
-	h.Write([]byte(kxResponseLabel))
-	h.Write(transcript)
-	return h.Sum(nil)
+	return crypto.LabeledHash512(kxResponseLabel, transcript)
 }
 
 func kxWrappingKey(shared, transcript []byte) ([]byte, error) {
@@ -112,8 +95,8 @@ func kxWrappingKey(shared, transcript []byte) ([]byte, error) {
 }
 
 func validateKxPeerMaterial(pub, nonce []byte) error {
-	if len(pub) != kxPubLen {
-		return fmt.Errorf("bad ephemeral public key length %d, want %d", len(pub), kxPubLen)
+	if err := crypto.ValidatePublicKey(pub); err != nil {
+		return err
 	}
 	if len(nonce) != kxNonceLen {
 		return fmt.Errorf("bad nonce length %d, want %d", len(nonce), kxNonceLen)
@@ -121,10 +104,10 @@ func validateKxPeerMaterial(pub, nonce []byte) error {
 	return nil
 }
 
-func newKxEphemeral() (*ecdh.PrivateKey, []byte, error) {
-	priv, err := ecdh.X25519().GenerateKey(rand.Reader)
+func newKxEphemeral() (*crypto.Ephemeral, []byte, error) {
+	priv, err := crypto.NewEphemeral()
 	if err != nil {
-		return nil, nil, fmt.Errorf("generating ephemeral key failed: %w", err)
+		return nil, nil, err
 	}
 	return priv, crypto.GenerateNonce(kxNonceLen), nil
 }
@@ -136,7 +119,7 @@ func newKeyExchangeRequest(attestor sgx.Attestor) (*keyExchangeRequest, *pending
 	if err != nil {
 		return nil, nil, err
 	}
-	pub := priv.PublicKey().Bytes()
+	pub := priv.Public()
 	quote, err := attestor.Quote(kxRequestBinding(pub, nonce))
 	if err != nil {
 		return nil, nil, fmt.Errorf("quoting ephemeral key failed: %w", err)
@@ -160,20 +143,16 @@ func wrapMasterKey(attestor sgx.Attestor, req *keyExchangeRequest, secret []byte
 		return nil, fmt.Errorf("requester attestation rejected: %w", err)
 	}
 
-	peerPub, err := ecdh.X25519().NewPublicKey(req.EphemeralPub)
-	if err != nil {
-		return nil, fmt.Errorf("bad ephemeral public key: %w", err)
-	}
 	priv, nonce, err := newKxEphemeral()
 	if err != nil {
 		return nil, err
 	}
-	shared, err := priv.ECDH(peerPub)
+	shared, err := priv.SharedSecret(req.EphemeralPub)
 	if err != nil {
-		return nil, fmt.Errorf("ecdh failed: %w", err)
+		return nil, err
 	}
 
-	pub := priv.PublicKey().Bytes()
+	pub := priv.Public()
 	transcript := kxTranscript(req.EphemeralPub, pub, req.Nonce, nonce)
 	quote, err := attestor.Quote(kxResponseBinding(transcript))
 	if err != nil {
@@ -220,12 +199,7 @@ type seedKeyInit struct {
 // a different cluster. The trailing fields are fixed length, so the
 // concatenation stays unambiguous despite the variable-length id.
 func seedOfferBinding(clusterId string, ephPub, nonce []byte) []byte {
-	h := sha512.New()
-	h.Write([]byte(kxSeedOfferLabel))
-	h.Write([]byte(clusterId))
-	h.Write(ephPub)
-	h.Write(nonce)
-	return h.Sum(nil)
+	return crypto.LabeledHash512(kxSeedOfferLabel, []byte(clusterId), ephPub, nonce)
 }
 
 // seedTranscript is order independent: both peers of a pair derive the same
@@ -235,12 +209,7 @@ func seedTranscript(pubA, nonceA, pubB, nonceB []byte) []byte {
 	if bytes.Compare(pubA, pubB) > 0 {
 		loPub, loNonce, hiPub, hiNonce = pubB, nonceB, pubA, nonceA
 	}
-	h := sha256.New()
-	h.Write(loPub)
-	h.Write(hiPub)
-	h.Write(loNonce)
-	h.Write(hiNonce)
-	return h.Sum(nil)
+	return crypto.Transcript(loPub, hiPub, loNonce, hiNonce)
 }
 
 // seedWrappingKey derives a direction-separated key. Including the sender's
@@ -258,7 +227,7 @@ func newSeedOffer(attestor sgx.Attestor, clusterId string) (*seedOffer, *pending
 	if err != nil {
 		return nil, nil, err
 	}
-	pub := priv.PublicKey().Bytes()
+	pub := priv.Public()
 	quote, err := attestor.Quote(seedOfferBinding(clusterId, pub, nonce))
 	if err != nil {
 		return nil, nil, fmt.Errorf("quoting seed offer failed: %w", err)
@@ -284,13 +253,9 @@ func wrapSeedKey(selfKx *pendingKeyExchange, selfOffer, peer *seedOffer, secret 
 	if len(secret) != masterKeyLen {
 		return nil, fmt.Errorf("bad master key length %d, want %d", len(secret), masterKeyLen)
 	}
-	peerPub, err := ecdh.X25519().NewPublicKey(peer.EphemeralPub)
+	shared, err := selfKx.priv.SharedSecret(peer.EphemeralPub)
 	if err != nil {
-		return nil, fmt.Errorf("bad ephemeral public key: %w", err)
-	}
-	shared, err := selfKx.priv.ECDH(peerPub)
-	if err != nil {
-		return nil, fmt.Errorf("ecdh failed: %w", err)
+		return nil, err
 	}
 	transcript := seedTranscript(selfOffer.EphemeralPub, selfOffer.Nonce, peer.EphemeralPub, peer.Nonce)
 	wrappingKey, err := seedWrappingKey(shared, transcript, selfOffer.EphemeralPub)
@@ -320,13 +285,9 @@ func unwrapSeedKey(attestor sgx.Attestor, clusterId string, selfKx *pendingKeyEx
 	if !bytes.Equal(init.RecipientPub, selfOffer.EphemeralPub) {
 		return nil, errors.New("seed key was not wrapped to this node's offer")
 	}
-	senderPub, err := ecdh.X25519().NewPublicKey(init.EphemeralPub)
+	shared, err := selfKx.priv.SharedSecret(init.EphemeralPub)
 	if err != nil {
-		return nil, fmt.Errorf("bad ephemeral public key: %w", err)
-	}
-	shared, err := selfKx.priv.ECDH(senderPub)
-	if err != nil {
-		return nil, fmt.Errorf("ecdh failed: %w", err)
+		return nil, err
 	}
 	transcript := seedTranscript(selfOffer.EphemeralPub, selfOffer.Nonce, init.EphemeralPub, init.Nonce)
 	wrappingKey, err := seedWrappingKey(shared, transcript, init.EphemeralPub)
@@ -349,19 +310,15 @@ func unwrapMasterKey(attestor sgx.Attestor, pending *pendingKeyExchange, resp *k
 	if err := validateKxPeerMaterial(resp.EphemeralPub, resp.Nonce); err != nil {
 		return nil, err
 	}
-	ownPub := pending.priv.PublicKey().Bytes()
+	ownPub := pending.priv.Public()
 	transcript := kxTranscript(ownPub, resp.EphemeralPub, pending.nonce, resp.Nonce)
 	if err := attestor.VerifyQuote(resp.Quote, kxResponseBinding(transcript)); err != nil {
 		return nil, fmt.Errorf("responder attestation rejected: %w", err)
 	}
 
-	peerPub, err := ecdh.X25519().NewPublicKey(resp.EphemeralPub)
+	shared, err := pending.priv.SharedSecret(resp.EphemeralPub)
 	if err != nil {
-		return nil, fmt.Errorf("bad ephemeral public key: %w", err)
-	}
-	shared, err := pending.priv.ECDH(peerPub)
-	if err != nil {
-		return nil, fmt.Errorf("ecdh failed: %w", err)
+		return nil, err
 	}
 	wrappingKey, err := kxWrappingKey(shared, transcript)
 	if err != nil {

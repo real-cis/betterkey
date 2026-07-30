@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"gitlab.com/real-cis/cc/betterkey/internal/common"
+	"gitlab.com/real-cis/cc/betterkey/internal/sgx"
 	"gitlab.com/real-cis/cc/betterkey/internal/web/cert"
 	"gitlab.com/real-cis/cc/betterkey/providers/dns"
 	"gitlab.com/real-cis/cc/betterkey/providers/journal"
@@ -32,9 +33,11 @@ type KeyServer struct {
 	challengeResponse        ChallengeResponse // challenge response for VM attestation
 	sealingChallengeResponse ChallengeResponse // challenge response for sealing operations
 	journal                  journal.Journal   // journal for key requests
+	attestor                 sgx.Attestor      // quotes this enclave for key-exchange responses
+	enforceKeyWrapping       bool
 }
 
-func NewKeyServer(config *common.ClusterConfig, kvStore common.KeyStore,
+func NewKeyServer(config *common.ClusterConfig, enclaveConfig *common.EnclaveConfig, kvStore common.KeyStore,
 	nodeMeta *common.NodeMeta, vault common.Vault, nodeTlsConfig *tls.Config) *KeyServer {
 	router := chi.NewRouter()
 
@@ -65,11 +68,19 @@ func NewKeyServer(config *common.ClusterConfig, kvStore common.KeyStore,
 		TLSConfig: tlsConfig,
 	}
 
+	if !config.EnforceKeyWrapping {
+		slog.Warn("key wrapping is not enforced: clients may request derived keys over the legacy " +
+			"plaintext flow, which is readable by any TLS terminator between the client TD and this " +
+			"enclave. Set KDS_ENFORCE_KEY_WRAPPING=true once all clients are updated")
+	}
+
 	keyStore := NewSessionKeyStore(kvStore, config.DevMode)
 	sessions := NewSessionStore(keyStore)
 	// VMs always fully attest themselves, devMode=false, quote verification enforced
-	challengeResponse := NewAttestationProtocol(sessions, false, true)
-	sealingChallengeResponse := NewAttestationProtocol(sessions, config.DevMode, config.EnforceQuoteVerify)
+	challengeResponse := NewAttestationProtocol(sessions, false, true,
+		kdsKeyExchangeScheme, config.EnforceKeyWrapping)
+	// the seal flow returns an already-encrypted payload, so it offers no key exchange
+	sealingChallengeResponse := NewAttestationProtocol(sessions, config.DevMode, config.EnforceQuoteVerify, "", false)
 	keyGenService := NewKeyGenService(vault, keyStore, config.DevMode)
 	journalService := journal.NewJournal(journal.Config{
 		Endpoint:  config.JournalEndpoint,
@@ -88,6 +99,8 @@ func NewKeyServer(config *common.ClusterConfig, kvStore common.KeyStore,
 		challengeResponse:        challengeResponse,
 		sealingChallengeResponse: sealingChallengeResponse,
 		journal:                  journalService,
+		attestor:                 sgx.NewAttestor(enclaveConfig),
+		enforceKeyWrapping:       config.EnforceKeyWrapping,
 	}
 
 	router.Use(LoggingMiddleware, DefaultHeaders)
