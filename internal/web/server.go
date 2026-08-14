@@ -68,8 +68,8 @@ func NewKeyServer(config *common.ClusterConfig, kvStore common.KeyStore,
 	keyStore := NewSessionKeyStore(kvStore, config.DevMode)
 	sessions := NewSessionStore(keyStore)
 	// VMs always fully attest themselves, devMode=false, quote verification enforced
-	challengeResponse := NewAttestationProtocol(sessions, false, true)
-	sealingChallengeResponse := NewAttestationProtocol(sessions, config.DevMode, config.EnforceQuoteVerify)
+	challengeResponse := NewAttestationProtocol(sessions, false, config.EnforceKeyRequestQuoteVerify)
+	sealingChallengeResponse := NewAttestationProtocol(sessions, config.DevMode, config.EnforceSealQuoteVerify)
 	keyGenService := NewKeyGenService(vault, keyStore, config.DevMode)
 	journalService := journal.NewJournal(journal.Config{
 		Endpoint:  config.JournalEndpoint,
@@ -101,7 +101,6 @@ func (s *KeyServer) registerRoutes() {
 	s.Router.Post("/key/finalize", s.handleKeyRequestFinalize)
 	s.Router.Post("/tdx/seal/init", s.handleTdxSealInit)
 	s.Router.Post("/tdx/seal/finalize", s.handleTdxSealFinalize)
-	s.Router.Post("/sgx/verify", s.handleSgxQuoteVerify)
 	s.Router.Get("/sgx/attestation", s.handleGenerateAttestation)
 	s.Router.Get("/health", s.handleHealth)
 }

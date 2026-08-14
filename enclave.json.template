@@ -116,7 +116,11 @@
             "fromHost": true
         },
         {
-            "name": "TDX_ENFORCE_QUOTE_VERIFY",
+            "name": "TDX_SEAL_ENFORCE_QUOTE_VERIFY",
+            "fromHost": true
+        },
+        {
+            "name": "TDX_KEYREQ_ENFORCE_QUOTE_VERIFY",
             "fromHost": true
         },
         {

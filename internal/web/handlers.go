@@ -14,42 +14,13 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/edgelesssys/ego/attestation"
 	"github.com/edgelesssys/ego/enclave"
-	"gitlab.com/real-cis/cc/betterkey/internal/sgx"
 	"gitlab.com/real-cis/cc/betterkey/pkg/api"
 )
 
 func (s *KeyServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
-}
-
-func (s *KeyServer) handleSgxQuoteVerify(w http.ResponseWriter, r *http.Request) {
-	req, err := decodeRequest[api.SGXQuote](r)
-	if err != nil {
-		respondError(w, http.StatusBadRequest, "Invalid request")
-		return
-	}
-	quote, err := base64.StdEncoding.DecodeString(req.SignedQuote)
-	if err != nil {
-		respondError(w, http.StatusBadRequest, fmt.Sprintf("bad encoding:%v", err))
-		return
-	}
-	response, err := sgx.ValidateSignedQuote(quote)
-
-	if err != nil {
-		if err == attestation.ErrTCBLevelInvalid {
-			slog.Error("attestation.ErrTCBLevelInvalid accepted", "report", response)
-			respondJSON(w, http.StatusOK, response)
-		} else {
-			slog.Error("attestation error", "report", response)
-			respondError(w, http.StatusBadRequest, fmt.Sprintf("bad quote :%v", err))
-		}
-	} else {
-		slog.Info("enclave.VerifyRemoteReport ok", "report", response)
-		respondJSON(w, http.StatusOK, response)
-	}
 }
 
 func (s *KeyServer) handleGenerateAttestation(w http.ResponseWriter, _ *http.Request) {
