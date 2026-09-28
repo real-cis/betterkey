@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/real-cis/cc/betterkey/internal/crypto"
 	s3 "gitlab.com/real-cis/libs/scaleway-s3-client/client"
 )
 
@@ -87,7 +88,11 @@ func (j *s3Journal) Write(ctx context.Context, rec Record) error {
 	}
 
 	// Written last so a marker never points at a missing record
-	marker := fmt.Sprintf("%d.%s.%s", entry.Timestamp, rec.ResourceId, strings.ToLower(string(rec.Type)))
+	ts, ok := crypto.ParseSessionID(rec.SessionId)
+	if !ok {
+		ts = fmt.Sprintf("%013d", entry.Timestamp)
+	}
+	marker := fmt.Sprintf("%s.%s.%s", ts, rec.ResourceId, strings.ToLower(string(rec.Type)))
 	if err := j.upload(path.Join(eventsPrefix, marker), nil); err != nil {
 		return fmt.Errorf("upload event marker: %w", err)
 	}

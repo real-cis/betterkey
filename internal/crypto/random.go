@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/go-uuid"
@@ -33,4 +34,10 @@ func GenerateUUID() string {
 // "<epoch-ms>.<uuid>".
 func GenerateSessionID() string {
 	return fmt.Sprintf("%013d.%s", time.Now().UnixMilli(), GenerateUUID())
+}
+
+// ParseSessionID returns the "<epoch-ms>" prefix of a session ID from GenerateSessionID.
+func ParseSessionID(sessionId string) (string, bool) {
+	ts, _, ok := strings.Cut(sessionId, ".")
+	return ts, ok
 }
