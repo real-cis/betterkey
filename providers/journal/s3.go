@@ -12,13 +12,17 @@ import (
 	"log/slog"
 	"os"
 	"path"
+	"strings"
 	"time"
 
 	s3 "gitlab.com/real-cis/libs/scaleway-s3-client/client"
 )
 
+// Prefix for empty event markers named <ts>.<resourceId>.<type>
+const eventsPrefix = "events"
+
 // s3Journal persists journal records to an S3 bucket. Each record is written
-// under <endpoint>/<resourceId>/<sessionId>/ as a set of files
+// under <endpoint>/<resourceId>/<sessionId>/ as a set of files, followed by an event marker
 type s3Journal struct {
 	s3 *s3.Client
 }
@@ -80,6 +84,12 @@ func (j *s3Journal) Write(ctx context.Context, rec Record) error {
 		if err := j.upload(path.Join(prefix, a.name), a.data); err != nil {
 			return fmt.Errorf("upload %s: %w", a.name, err)
 		}
+	}
+
+	// Written last so a marker never points at a missing record
+	marker := fmt.Sprintf("%d.%s.%s", entry.Timestamp, rec.ResourceId, strings.ToLower(string(rec.Type)))
+	if err := j.upload(path.Join(eventsPrefix, marker), nil); err != nil {
+		return fmt.Errorf("upload event marker: %w", err)
 	}
 	return nil
 }
