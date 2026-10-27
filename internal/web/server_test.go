@@ -107,7 +107,7 @@ func createTestConfig() *common.ClusterConfig {
 		Id:              "test-cluster",
 		Port:            7946,
 		ServerPort:      8443,
-		Domain:          "test.example.com",
+		Domains:         []string{"test.example.com"},
 		NodeHost:        "node1",
 		DevMode:         true,
 		AcmeDnsToken:    "", // Empty to use node TLS
@@ -156,7 +156,7 @@ func TestNewHTTPServer(t *testing.T) {
 			validateServer: func(t *testing.T, server *KeyServer) {
 				assert.NotNil(t, server.Router)
 				assert.Equal(t, 8443, server.Port)
-				assert.Equal(t, "test.example.com", server.Domain)
+				assert.Equal(t, []string{"test.example.com"}, server.Domains)
 				assert.Equal(t, "node1", server.NodeHost)
 				assert.NotNil(t, server.server)
 				assert.NotNil(t, server.keyService)
@@ -289,7 +289,7 @@ func TestHTTPServerTLSConfiguration(t *testing.T) {
 func TestHTTPServerConfiguration(t *testing.T) {
 	config := createTestConfig()
 	config.ServerPort = 9443
-	config.Domain = "custom.domain.com"
+	config.Domains = []string{"custom.domain.com", "new.domain.com"}
 	config.NodeHost = "custom-node"
 
 	mockKVStore := new(MockKeyStore)
@@ -300,7 +300,7 @@ func TestHTTPServerConfiguration(t *testing.T) {
 	server := NewKeyServer(config, mockKVStore, nodeMeta, mockVault, tlsConfig)
 
 	assert.Equal(t, 9443, server.Port)
-	assert.Equal(t, "custom.domain.com", server.Domain)
+	assert.Equal(t, []string{"custom.domain.com", "new.domain.com"}, server.Domains)
 	assert.Equal(t, "custom-node", server.NodeHost)
 	assert.Equal(t, ":9443", server.server.Addr)
 }

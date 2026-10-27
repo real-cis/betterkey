@@ -32,7 +32,7 @@ type ClusterConfig struct {
 	ValkeyPassword               string   `env:"VALKEY_PASSWORD"`
 	ValkeyNamespace              string   `env:"VALKEY_NAMESPACE"`
 	ValkeyTLS                    bool     `env:"VALKEY_TLS" envDefault:"false"`
-	Domain                       string   `env:"SERVER_DOMAIN"`
+	Domains                      []string `env:"SERVER_DOMAIN"`
 	ServerPort                   int      `env:"SERVER_PORT"`
 	AcmeDnsToken                 string   `env:"ACME_DNS_API_TOKEN"`
 	AcmeOwner                    string   `env:"ACME_OWNER"`

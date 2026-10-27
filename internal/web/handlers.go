@@ -23,12 +23,17 @@ func (s *KeyServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("OK"))
 }
 
-func (s *KeyServer) handleGenerateAttestation(w http.ResponseWriter, _ *http.Request) {
+func (s *KeyServer) handleGenerateAttestation(w http.ResponseWriter, r *http.Request) {
+	// attest the cert served for the SNI the client connected with
+	serverName := r.TLS.ServerName
+	if serverName == "" && len(s.Domains) > 0 {
+		serverName = s.Domains[0]
+	}
 	endpoint := net.JoinHostPort(s.NodeHost, fmt.Sprintf("%d", s.Port))
-	slog.Info("collecting server certificate", "endpoint", endpoint)
+	slog.Info("collecting server certificate", "endpoint", endpoint, "serverName", serverName)
 	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second}, "tcp", endpoint, &tls.Config{
 		InsecureSkipVerify: true,
-		ServerName:         s.Domain,
+		ServerName:         serverName,
 	})
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, fmt.Sprintf("cannot connect to:%v,error:%v", endpoint, err))

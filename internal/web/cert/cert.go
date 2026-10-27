@@ -14,7 +14,7 @@ import (
 )
 
 type AcmeConfig struct {
-	Domain       string
+	Domains      []string
 	DnsProvider  certmagic.DNSProvider
 	AcmeOwner    string
 	AcmeProvider string
@@ -40,7 +40,7 @@ func (a *AcmeConfig) Setup() *certmagic.Config {
 	cm := certmagic.NewDefault()
 
 	for range a.RetryCount {
-		err := cm.ManageSync(context.Background(), []string{a.Domain})
+		err := cm.ManageSync(context.Background(), a.Domains)
 		if err != nil {
 			slog.Error(fmt.Sprintf("Error managing certificate: %v", err))
 		} else {

@@ -33,6 +33,7 @@ VALKEY_NAMESPACE=prod
 # ACME (optional)
 ACME_DNS_API_TOKEN=<dns-api-token>
 ACME_OWNER=admin@example.com
+# comma-separated for multiple domains
 SERVER_DOMAIN=betterkey.example.com
 
 # Journal (optional)

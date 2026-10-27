@@ -6,7 +6,6 @@ package web
 import (
 	"context"
 	"crypto/tls"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -24,7 +23,7 @@ import (
 type KeyServer struct {
 	Router                   *chi.Mux
 	Port                     int
-	Domain                   string
+	Domains                  []string
 	NodeHost                 string
 	server                   *http.Server
 	sessions                 *SessionStore // attestation session record persistence
@@ -46,7 +45,7 @@ func NewKeyServer(config *common.ClusterConfig, kvStore common.KeyStore,
 		slog.Info("use acme for server")
 		provider := dns.NewProvider(config.AcmeDnsToken)
 		acmeConfig := &cert.AcmeConfig{
-			Domain:       config.Domain,
+			Domains:      config.Domains,
 			DnsProvider:  provider,
 			AcmeOwner:    config.AcmeOwner,
 			AcmeProvider: config.AcmeProvider,
@@ -80,7 +79,7 @@ func NewKeyServer(config *common.ClusterConfig, kvStore common.KeyStore,
 	sv := &KeyServer{
 		Router:                   router,
 		Port:                     config.ServerPort,
-		Domain:                   config.Domain,
+		Domains:                  config.Domains,
 		NodeHost:                 config.NodeHost,
 		server:                   server,
 		sessions:                 sessions,
@@ -107,7 +106,7 @@ func (s *KeyServer) registerRoutes() {
 
 func (s *KeyServer) Start() {
 	go func() {
-		slog.Info(fmt.Sprintf("Server listening on https://%s:%d", s.Domain, s.Port))
+		slog.Info("Server listening", "domains", s.Domains, "port", s.Port)
 		if err := s.server.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
 			slog.Error("Server error:", "error", err)
 		}
