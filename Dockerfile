@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 # Build
-FROM ghcr.io/edgelesssys/ego-dev:v1.9.0
+FROM ghcr.io/edgelesssys/ego-dev:v1.11.0
 
 ARG SIGNERKEY=dev/conf/test-private.pem
 ARG ENCLAVE_PROPS=dev/conf/enclave.properties
@@ -17,7 +17,7 @@ RUN ego sign main
 RUN ego signerid main
 
 # Run with deploy container
-FROM ghcr.io/edgelesssys/ego-deploy:v1.9.0
+FROM ghcr.io/edgelesssys/ego-deploy:v1.11.0
 
 WORKDIR /app
 COPY --from=0 /app/main /app/main
